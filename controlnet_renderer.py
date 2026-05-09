@@ -42,6 +42,7 @@ class ControlNetRenderer:
 
         self.base_model_id = base_model_id
         self._animatediff_loaded = False
+        self._cpu_vae = None  # 独立 CPU VAE，绕过 sequential offload hooks
         print("ControlNet pipeline loaded successfully.")
 
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
@@ -236,14 +237,22 @@ class ControlNetRenderer:
                 output_type="latent",  # 跳过 VAE 解码，返回 latents
             )
 
-        # VAE 解码 —— 在 CPU 上执行，降低 GPU 3D 负载
+        # VAE 解码
         latents = output.frames[0]  # (N, 4, 64, 64)
-        vae = self.animate_pipe.vae
-        device = vae.device
 
         if vae_cpu_decode and self.device.type == "cuda":
-            vae.to("cpu")
+            # 独立 CPU VAE — 不碰管线 VAE 的 accelerate hooks
+            if self._cpu_vae is None:
+                from diffusers import AutoencoderKL
+                print("Loading CPU VAE for offloaded decode...")
+                self._cpu_vae = AutoencoderKL.from_pretrained(
+                    self.base_model_id, subfolder="vae",
+                    torch_dtype=torch.float32,
+                ).to("cpu")
+            vae = self._cpu_vae
             print(f"VAE decode on CPU ({latents.shape[0]} frames)...")
+        else:
+            vae = self.animate_pipe.vae
 
         frames = []
         scaling = vae.config.scaling_factor
@@ -255,9 +264,6 @@ class ControlNetRenderer:
             decoded = decoded.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
             decoded = (decoded * 255).round().astype("uint8")
             frames.append(Image.fromarray(decoded))
-
-        if vae_cpu_decode and self.device.type == "cuda":
-            vae.to(device)  # 恢复 VAE 位置，供后续调用
 
         os.makedirs(output_dir, exist_ok=True)
         output_paths = []

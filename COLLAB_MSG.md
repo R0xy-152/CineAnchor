@@ -815,3 +815,23 @@ python e2e_test.py
 **需修复：** VAE CPU decode 的 meta tensor 问题。修复后 AnimateDiff 应该能同时拿到高 ratio + 时序一致性。
 
 ---
+
+### [2026-05-09 VAE CPU解码 bug 修复 — mac]
+
+**根因：** `enable_sequential_cpu_offload()` 的 accelerate hooks 拦住了 `vae.to("cpu")` 调用，VAE 参数卡在 meta 设备。改为加载**独立 CPU VAE** (`AutoencoderKL` → cpu)，不和管线 VAE 共享 hook 状态。
+
+**改动：** `render_animated()` 中独立加载一个 fp32 VAE 到 CPU，随后逐帧解码。
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+**验证点：**
+1. VAE CPU decode 是否正常（不再报 Cannot copy out of meta tensor）
+2. AnimateDiff 是否正常运行（不再降级为逐帧）
+3. 叠加 AnimateDiff + 纹理立方体 + scale=1.7 的最终效果
+
+---
