@@ -64,6 +64,17 @@
   #gamepad-status { font-size: 11px; margin-top: 4px; }
   #gamepad-status .connected { color: #4ade80; }
   #gamepad-status .disconnected { color: #666; }
+
+  #render-progress { display: none; margin-top: 10px; }
+  #render-progress .bar-bg { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  #render-progress .bar-fill { height: 100%; width: 0%; background: #16a34a; border-radius: 2px; transition: width 0.3s; }
+  #render-progress .elapsed { font-size: 11px; color: #888; text-align: center; margin-top: 4px; }
+  #video-result { display: none; margin-top: 10px; }
+  #video-result video { width: 100%; border-radius: 6px; }
+  #video-result a { color: #4ade80; font-size: 11px; display: block; text-align: center; margin-top: 4px; }
+  #depth-preview { display: none; margin-top: 10px; }
+  #depth-preview img { width: 100%; border-radius: 6px; opacity: 0.8; }
+  #depth-preview .label { font-size: 10px; color: #666; text-align: center; }
 </style>
 </head>
 <body>
@@ -105,6 +116,19 @@
   <button class="btn-record" id="btn-record" onclick="toggleRecord()">录制帧</button>
   <button class="btn-render" id="btn-render" onclick="renderVideo()">生成视频</button>
   <button class="btn-clear" onclick="clearFrames()">清空帧</button>
+
+  <div id="render-progress">
+    <div class="bar-bg"><div class="bar-fill" id="progress-fill"></div></div>
+    <div class="elapsed" id="progress-elapsed"></div>
+  </div>
+  <div id="video-result">
+    <video id="result-video" controls loop></video>
+    <a id="result-link" target="_blank" href="#">下载视频</a>
+  </div>
+  <div id="depth-preview">
+    <div class="label">最新深度图</div>
+    <img id="depth-img" src="" alt="深度图预览">
+  </div>
 
   <div id="status">
     <span id="api-status">API: 检测中...</span>
@@ -392,6 +416,7 @@ function stopRecording() {
   btn.textContent = '录制帧';
   btn.classList.remove('recording');
   if (recordInterval) { clearInterval(recordInterval); recordInterval = null; }
+  document.getElementById('status').innerHTML = `已录制 <b>${frameId}</b> 帧。点击"生成视频"开始渲染。`;
 }
 
 async function captureFrame() {
@@ -400,13 +425,18 @@ async function captureFrame() {
   lastRecordedPose = pose;
 
   try {
-    await apiCall('POST', '/camera/record_frame', {
+    const result = await apiCall('POST', '/camera/record_frame', {
       scene_id: sceneId,
       frame_id: frameId,
       camera_pose: pose
     });
     frameId++;
     document.getElementById('frame-count').textContent = frameId;
+    // Show depth preview
+    const preview = document.getElementById('depth-preview');
+    const img = document.getElementById('depth-img');
+    img.src = API + result.depth_map_url;
+    preview.style.display = 'block';
   } catch (e) {
     console.error('Record frame failed:', e);
   }
@@ -425,20 +455,46 @@ window.renderVideo = async function() {
   const fps = parseInt(document.getElementById('fps').value) || 8;
 
   const btn = document.getElementById('btn-render');
+  const progress = document.getElementById('render-progress');
+  const fill = document.getElementById('progress-fill');
+  const elapsed = document.getElementById('progress-elapsed');
+  const videoResult = document.getElementById('video-result');
+  const videoEl = document.getElementById('result-video');
+  const linkEl = document.getElementById('result-link');
+
   btn.textContent = '渲染中...';
   btn.disabled = true;
+  videoResult.style.display = 'none';
+  progress.style.display = 'block';
+  fill.style.width = '0%';
+  const start = Date.now();
+  const tick = setInterval(() => {
+    const secs = Math.floor((Date.now() - start) / 1000);
+    elapsed.textContent = `渲染中... ${secs}s`;
+    fill.style.width = Math.min(secs / 60 * 100, 90) + '%';
+  }, 500);
 
   try {
     const interp = parseInt(document.getElementById('interpolation').value) || 1;
     const result = await apiCall('POST', '/render/video', { scene_id: sceneId, prompt, fps, interpolation: interp });
-    btn.textContent = '生成视频';
-    btn.disabled = false;
-    alert(`视频已生成: ${API}${result.video_url}`);
+    clearInterval(tick);
+    fill.style.width = '100%';
+    const total = Math.floor((Date.now() - start) / 1000);
+    elapsed.textContent = `完成 (${total}s)`;
+    setTimeout(() => { progress.style.display = 'none'; }, 2000);
+
+    const videoUrl = API + result.video_url;
+    videoEl.src = videoUrl;
+    linkEl.href = videoUrl;
+    videoResult.style.display = 'block';
+    document.getElementById('status').innerHTML = `<span class="ok">✓ 视频已生成</span>`;
   } catch (e) {
-    btn.textContent = '生成视频';
-    btn.disabled = false;
-    alert(`渲染失败: ${e.message}`);
+    clearInterval(tick);
+    progress.style.display = 'none';
+    document.getElementById('status').innerHTML = `<span class="err">渲染失败: ${e.message}</span>`;
   }
+  btn.textContent = '生成视频';
+  btn.disabled = false;
 };
 
 // ---- Camera Mode System ----
@@ -661,13 +717,16 @@ document.addEventListener('mousemove', (e) => {
 });
 
 // ---- Clear ----
-window.clearFrames = async function() {
-  const sceneId = document.getElementById('scene-select').value;
-  try { await apiCall('DELETE', `/clear_data/${sceneId}`); } catch {}
+window.clearFrames = function() {
+  fetch(`${API}/clear_data/${document.getElementById('scene-select').value}`, { method: 'DELETE' }).catch(() => {});
   frameId = 0;
   lastRecordedPose = null;
   document.getElementById('frame-count').textContent = '0';
-};
+  document.getElementById('video-result').style.display = 'none';
+  document.getElementById('depth-preview').style.display = 'none';
+  document.getElementById('render-progress').style.display = 'none';
+  document.getElementById('status').innerHTML = '帧已清空';
+}
 
 // ---- Render Loop ----
 const clock = new THREE.Clock();
