@@ -744,7 +744,18 @@ python e2e_test.py
 **验证点：**
 1. 立方体 ratio 是否从 ~1.17 提升
 2. 时序一致性 std 是否保持在 ~0.06
-3. 注意 1.5 是否导致过度拟合深度图（画面变僵硬/深度痕迹）
+3. GPU 3D 使用率是否有下降（VAE 解码在 CPU 上）
+4. 注意 1.5 是否导致过度拟合深度图（画面变僵硬/深度痕迹）
+
+---
+
+### [2026-05-09 VAE CPU 解码 — mac]
+
+**问题：** GPU 3D 跑满，希望卸载工作到 CPU。
+
+**改动：** `render_animated()` 管线调用设 `output_type="latent"` 跳过 GPU VAE 解码，改为逐帧在 CPU 上解码。UNet 扩散照常用 GPU（太重），VAE 矩阵乘法搬到 CPU（可利用多核）。
+
+**参数：** `vae_cpu_decode=True`（默认），设为 False 恢复旧行为。
 
 ---
 

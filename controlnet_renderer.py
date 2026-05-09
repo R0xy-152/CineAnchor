@@ -181,11 +181,10 @@ class ControlNetRenderer:
                         num_inference_steps: int = 25,
                         guidance_scale: float = 7.5,
                         seed: int = 42,
-                        controlnet_conditioning_scale: float = 1.0) -> list[str]:
+                        controlnet_conditioning_scale: float = 1.0,
+                        vae_cpu_decode: bool = True) -> list[str]:
         """
         AnimateDiff + ControlNet 联合生成。
-        所有帧在一个扩散过程中同时生成，每帧之间共享时序注意力层，
-        从根源消除帧间纹理漂移。
 
         Args:
             depth_paths: 深度图路径列表 (按时间顺序)
@@ -195,6 +194,7 @@ class ControlNetRenderer:
             guidance_scale: CFG scale
             seed: 随机种子
             controlnet_conditioning_scale: ControlNet 注入强度
+            vae_cpu_decode: VAE 在 CPU 上解码 (默认 True)。扩散在 GPU，解码在 CPU
 
         Returns:
             输出 RGB 帧路径列表
@@ -233,11 +233,35 @@ class ControlNetRenderer:
                 width=512,
                 height=512,
                 generator=generator,
+                output_type="latent",  # 跳过 VAE 解码，返回 latents
             )
+
+        # VAE 解码 —— 在 CPU 上执行，降低 GPU 3D 负载
+        latents = output.frames[0]  # (N, 4, 64, 64)
+        vae = self.animate_pipe.vae
+        device = vae.device
+
+        if vae_cpu_decode and self.device.type == "cuda":
+            vae.to("cpu")
+            print(f"VAE decode on CPU ({latents.shape[0]} frames)...")
+
+        frames = []
+        scaling = vae.config.scaling_factor
+        for i in range(latents.shape[0]):
+            latent = latents[i:i+1].to(vae.device)
+            with torch.inference_mode():
+                decoded = vae.decode(latent / scaling).sample
+            decoded = (decoded / 2 + 0.5).clamp(0, 1)
+            decoded = decoded.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
+            decoded = (decoded * 255).round().astype("uint8")
+            frames.append(Image.fromarray(decoded))
+
+        if vae_cpu_decode and self.device.type == "cuda":
+            vae.to(device)  # 恢复 VAE 位置，供后续调用
 
         os.makedirs(output_dir, exist_ok=True)
         output_paths = []
-        for i, frame in enumerate(output.frames[0]):
+        for i, frame in enumerate(frames):
             out = os.path.join(output_dir, f"rgb_frame_{i:04d}.png")
             frame.save(out)
             output_paths.append(out)
