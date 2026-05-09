@@ -1011,6 +1011,36 @@ python e2e_test.py                      # AnimateDiff + 复杂场景
 
 ### [2026-05-10 复杂场景测试 — 小win]
 
-**ratio=1.03 std=0.032 — 不如纹理立方体 (1.21/0.049)。** 深度严重饱和，多物体重叠使深度变化更少。纹理立方体仍是当前最佳。
+**ratio=1.03 std=0.032 — 不如纹理立方体 (1.21/0.049)。** 丰富场景方向证实无效。
+
+---
+
+## 🔴🔴 并行双任务 — mac
+
+### 任务 A: 深度图边缘增强
+在 `controlnet_renderer.py` 中对深度图做 Canny 边缘检测 → 叠加边缘到深度图 → ControlNet 能锁定更锐利的几何特征。
+
+### 任务 C: Prompt 工程
+精细化 prompt/negative prompt，用更具体的几何描述帮助 ControlNet 识别立方体结构。
+
+两边合并推送。
+
+### [2026-05-10 边缘增强 + Prompt 工程 — mac]
+
+**任务 A:** `_enhance_depth()` — Canny 边缘检测叠加深度图 (边缘 +30%, 其他 -10%)，给 ControlNet 更锐利的几何边界。
+
+**任务 C:** 
+- Prompt: "a sharp-edged geometric cube with visible faces and clear boundaries, floating in dark space, studio lighting, high contrast, photorealistic, crisp edges, matte surface"
+- Negative: 新增 "soft edges, rounded shape, organic, low contrast, flat shading, foggy, haze"
+
+## 🔴 验证 — 小win
+
+```bash
+git pull
+python generate_cube_splat.py    # 纹理立方体
+python e2e_test.py               # AnimateDiff + 边缘增强 + 新 prompt
+```
+
+**验证点：** ratio 能否从 1.21 突破，边缘增强是否引入伪影。
 
 ---

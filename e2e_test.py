@@ -73,7 +73,9 @@ def main():
     from controlnet_renderer import ControlNetRenderer
     cn_renderer = ControlNetRenderer()
 
-    prompt = "a colorful cube floating in dark space, studio lighting, high quality"
+    prompt = ("a sharp-edged geometric cube with visible faces and clear boundaries, "
+              "floating in dark space, studio lighting, high contrast, photorealistic, "
+              "crisp edges, matte surface")
     frame_dir = "controlnet_output/e2e_frames"
 
     # 收集深度图路径

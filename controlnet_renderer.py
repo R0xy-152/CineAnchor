@@ -44,6 +44,17 @@ class ControlNetRenderer:
         self._animatediff_loaded = False
         print("ControlNet pipeline loaded successfully.")
 
+    def _enhance_depth(self, depth_image):
+        """Canny 边缘叠加到深度图，给 ControlNet 更强的几何特征"""
+        import cv2
+        gray = cv2.cvtColor(np.array(depth_image), cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        # 边缘处提亮，非边缘处略微压暗 → 提升几何对比度
+        enhanced = gray.astype(np.float32)
+        enhanced = enhanced * 0.9 + edges.astype(np.float32) * 0.3
+        enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
+        return Image.fromarray(cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB))
+
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
                    num_inference_steps: int = 20, guidance_scale: float = 7.5,
                    seed: int = 42,
@@ -71,6 +82,8 @@ class ControlNetRenderer:
         # 调整到 SD 1.5 期望的 512 分辨率
         if depth_image.size != (512, 512):
             depth_image = depth_image.resize((512, 512), Image.LANCZOS)
+
+        depth_image = self._enhance_depth(depth_image)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
 
@@ -209,13 +222,15 @@ class ControlNetRenderer:
             img = Image.open(p).convert("RGB")
             if img.size != (512, 512):
                 img = img.resize((512, 512), Image.LANCZOS)
+            img = self._enhance_depth(img)
             depth_images.append(img)
 
         print(f"AnimateDiff render: {len(depth_images)} frames, "
               f"{num_inference_steps} steps, seed={seed}")
 
-        negative = ("bad quality, blurry, distorted, warped, jitter, "
-                    "inconsistent, flickering")
+        negative = ("blurry, soft edges, rounded shape, sphere, organic, "
+                    "warped, distorted, jitter, flickering, inconsistent, "
+                    "low contrast, flat shading, foggy, haze")
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
 
