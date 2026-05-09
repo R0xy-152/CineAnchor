@@ -1,37 +1,62 @@
 import numpy as np
 from plyfile import PlyData, PlyElement
-import os
+
 
 def create_cube_splat(output_path="test_scene.ply", num_points=20000):
-    print(f"Generating procedural 3DGS cube with {num_points} points...")
-    
-    # 1. 随机生成位于 -1 到 1 之间的立方体坐标
-    xyz = (np.random.rand(num_points, 3) * 2 - 1).astype(np.float32)
-    
-    # 2. 根据坐标位置赋予颜色 (XYZ 映射到 RGB)
-    # 左下角是黑色，右上角是白色，产生绚丽的渐变色
-    rgb = (xyz + 1) / 2.0 
-    
-    # 将 RGB 转换为球谐函数 (SH) 的第一项直流分量 (DC)
-    # 3DGS 公式：SH_C0 = 0.28209479177387814
-    # color = SH_DC * SH_C0 + 0.5  =>  SH_DC = (color - 0.5) / SH_C0
+    """
+    生成一个立方体表面的 3DGS PLY 文件。
+    高斯点分布在六个面上（非体积填充），确保深度图产生清晰的表面边缘，
+    ControlNet-Depth 才能正确识别几何结构。
+    """
+    print(f"Generating surface-only 3DGS cube with {num_points} points...")
+
+    # ---- 六个面均匀采样 ----
+    points_per_face = num_points // 6
+    remainder = num_points % 6
+
+    faces = []
+    for face_idx in range(6):
+        n = points_per_face + (1 if face_idx < remainder else 0)
+        # 在 [0,1]² 上均匀采样
+        u = np.random.rand(n)
+        v = np.random.rand(n)
+        uv = np.stack([u * 2 - 1, v * 2 - 1], axis=-1)  # [-1, 1]²
+
+        # 映射到六个面
+        ones = np.ones(n)
+        if face_idx == 0:   # +Z face: z=1
+            pts = np.column_stack([uv[:, 0], uv[:, 1], ones])
+        elif face_idx == 1: # -Z face: z=-1
+            pts = np.column_stack([uv[:, 0], uv[:, 1], -ones])
+        elif face_idx == 2: # +X face: x=1
+            pts = np.column_stack([ones, uv[:, 0], uv[:, 1]])
+        elif face_idx == 3: # -X face: x=-1
+            pts = np.column_stack([-ones, uv[:, 0], uv[:, 1]])
+        elif face_idx == 4: # +Y face: y=1
+            pts = np.column_stack([uv[:, 0], ones, uv[:, 1]])
+        else:               # -Y face: y=-1
+            pts = np.column_stack([uv[:, 0], -ones, uv[:, 1]])
+        faces.append(pts)
+
+    xyz = np.concatenate(faces, axis=0).astype(np.float32)
+    np.random.shuffle(xyz)  # 打乱以避免面边界伪影
+
+    # ---- 颜色：XYZ 映射到 RGB ----
+    rgb = (xyz + 1) / 2.0
     C0 = 0.28209479177387814
     f_dc = ((rgb - 0.5) / C0).astype(np.float32)
-    
-    # 3. 缩放参数 (非常小的高斯球，形成密集的表面)
-    # 3DGS 中 scale 是指数存储的，-4 左右代表非常小的点
-    scale = np.full((num_points, 3), -1.0, dtype=np.float32)
-    
-    # 4. 旋转参数 (四元数 w, x, y, z)
-    # 使用单位四元数 [1, 0, 0, 0] 表示无旋转
-    rot = np.zeros((num_points, 4), dtype=np.float32)
-    rot[:, 0] = 1.0 
-    
-    # 5. 不透明度 (Inverse Sigmoid 空间)
-    # 传入很大的值代表接近 1.0 (完全不透明)
-    opacity = np.full((num_points, 1), 10.0, dtype=np.float32)
-    
-    # 组装顶点数据
+
+    # ---- 缩放：exp(-2.0) ≈ 0.135 — 紧密排列但保持锐利边缘 ----
+    scale = np.full((len(xyz), 3), -2.0, dtype=np.float32)
+
+    # ---- 旋转：单位四元数 ----
+    rot = np.zeros((len(xyz), 4), dtype=np.float32)
+    rot[:, 0] = 1.0
+
+    # ---- 不透明度：sigmoid(15) ≈ 0.9999997 — 接近完全不透明 ----
+    opacity = np.full((len(xyz), 1), 15.0, dtype=np.float32)
+
+    # ---- 组装 PLY ----
     dtype = [
         ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
         ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),
@@ -40,12 +65,11 @@ def create_cube_splat(output_path="test_scene.ply", num_points=20000):
         ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),
         ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')
     ]
-    
-    elements = np.empty(num_points, dtype=dtype)
+
+    elements = np.empty(len(xyz), dtype=dtype)
     elements['x'] = xyz[:, 0]
     elements['y'] = xyz[:, 1]
     elements['z'] = xyz[:, 2]
-    # 法线全置 0
     elements['nx'] = 0
     elements['ny'] = 0
     elements['nz'] = 0
@@ -60,11 +84,10 @@ def create_cube_splat(output_path="test_scene.ply", num_points=20000):
     elements['rot_1'] = rot[:, 1]
     elements['rot_2'] = rot[:, 2]
     elements['rot_3'] = rot[:, 3]
-    
-    # 保存为 PLY 文件
-    el = PlyElement.describe(elements, 'vertex')
-    PlyData([el]).write(output_path)
-    print(f"Successfully saved to {output_path}")
+
+    PlyData([PlyElement.describe(elements, 'vertex')]).write(output_path)
+    print(f"Saved {len(xyz)} surface points → {output_path}")
+
 
 if __name__ == "__main__":
     create_cube_splat()
