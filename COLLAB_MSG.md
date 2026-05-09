@@ -579,3 +579,40 @@ python e2e_test.py
 净效果：无明显改善，5/8 天花板未突破。ControlNet 的帧间随机性可能大于 near/far 裁剪面的影响。
 
 ---
+
+## 🔴🔴 并行双任务 — 突破深度/时序瓶颈
+
+**根因已明确：**
+1. 立方体表面太平 → 近场深度无力可挖 (几何瓶颈)
+2. ControlNet 逐帧独立生成 → 帧间不一致 (时序瓶颈)
+
+两边同时攻坚：
+
+### 🔴 任务 A — 小win：带表面细节的 3DGS 场景
+
+**目标**：让立方体表面有凹凸纹路，即使近场也能产生深度变化。
+
+**方案**：修改 `generate_cube_splat.py`
+- 在立方体 6 面上加正弦波扰动 (`perturb` 参数控制幅度)
+- 每个面沿法线方向偏移 `±perturb`，频率 3-5 个周期/面
+- 扰动量级从 0.05 开始 (面尺寸 2×2 的 2.5%)
+- 生成新 PLY: `scene_textured_cube.ply`
+- 跑 e2e 测试看看深度图和 ControlNet 效果
+
+```python
+# 扰动示例: face_points + normal * amplitude * sin(freq * u) * cos(freq * v)
+```
+
+### 🟢 任务 B — mac：AnimateDiff 时序注意力
+
+**目标**：让 ControlNet 生成时感知所有帧，消除帧间随机性。
+
+**方案**：在 `controlnet_renderer.py` 添加 `render_animated()` 方法
+- 使用 `AnimateDiffControlNetPipeline` (diffusers 内置)
+- 加载 motion adapter: `guoyww/animatediff-motion-adapter-v1-5-2`
+- 所有帧在一个扩散过程中生成，共享噪声 + 时序注意力
+- 接口: `render_animated(depth_paths, prompt, output_dir) → list[str]`
+
+两边完成后合并 → 带纹理的立方体 + 时序一致的生成 → 预期大幅提升。
+
+---
