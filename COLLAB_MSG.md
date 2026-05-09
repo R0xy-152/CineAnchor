@@ -873,11 +873,8 @@ python e2e_test.py
 
 **根因：** AnimateDiff 把多帧 latent 沿 channel 维堆叠 (B, N*4, H, W)，独立 VAE 期望 4ch。修复：检测 channel>4 时 reshape 回 (N, 4, H, W)。
 
-## 🔴 验证 — 小win
+## 🔴 验证 — 小win → VAE fix v4 测试
 
-```bash
-git pull
-python e2e_test.py
-```
+新 bug: `shape '[2,4,64,64]' invalid for input size 131072` — reshape 尺寸不匹配。VAE CPU decode 已连修 4 轮，逐帧 7/8 CLEAR 一直稳。建议考虑直接用 GPU VAE，sequential_cpu_offload 已把显存压住了。
 
 ---
