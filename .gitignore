@@ -2,7 +2,9 @@
 real_depth_maps/
 simulated_depth_maps/
 simulated_videos/
+controlnet_output/
 depth_map_output/
+videos/
 
 # Large binaries
 *.ply

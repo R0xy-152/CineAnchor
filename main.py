@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 import uvicorn
 import json
 
-from simulated_diffusion import SimulatedDiffusionRenderer
+from video_renderer import VideoRenderer
 
 # --- 渲染引擎自动检测 ---
 # macOS 无 CUDA/gsplat → 降级到模拟模式
@@ -46,11 +46,11 @@ def _init_render_service():
 app = FastAPI(title="CineAnchor API", description="API for controlled AI video generation with 3D spatial anchors.")
 
 _init_render_service()
-simulated_diffusion_service = SimulatedDiffusionRenderer()
+video_renderer = VideoRenderer()
 
 # --- 挂载静态文件目录 ---
 app.mount("/depth_maps", StaticFiles(directory=render_service.output_dir), name="depth_maps")
-app.mount("/videos", StaticFiles(directory=simulated_diffusion_service.output_dir), name="videos")
+app.mount("/videos", StaticFiles(directory=video_renderer.output_dir), name="videos")
 
 
 # --- 全局变量 ---
@@ -187,7 +187,7 @@ async def render_video(request: RenderVideoRequest):
     depth_map_list = recorded_depth_map_paths[scene_id]
 
     try:
-        video_filepath = simulated_diffusion_service.render_video(
+        video_filepath = video_renderer.render_pipeline(
             depth_map_paths=depth_map_list,
             prompt=prompt,
             scene_id=scene_id,
@@ -197,7 +197,7 @@ async def render_video(request: RenderVideoRequest):
         recorded_depth_map_paths.pop(scene_id, None)
 
         video_url = f"/videos/{os.path.basename(video_filepath)}"
-        return {"video_url": video_url, "message": "Video rendering simulated successfully."}
+        return {"video_url": video_url, "message": "Video rendering completed."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -211,7 +211,7 @@ async def clear_scene_data(scene_id: str):
             if os.path.exists(path):
                 os.remove(path)
 
-    for d in [render_service.output_dir, simulated_diffusion_service.output_dir]:
+    for d in [render_service.output_dir, video_renderer.output_dir]:
         if os.path.exists(d):
             shutil.rmtree(d)
             os.makedirs(d, exist_ok=True)
