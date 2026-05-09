@@ -792,3 +792,26 @@ python e2e_test.py
 4. GPU 3D 使用率是否有下降（VAE 解码在 CPU 上）
 
 ---
+
+### [2026-05-09 scale=1.7 + VAE CPU 解码测试 — 小win]
+
+**VAE CPU 解码有 bug：** `Cannot copy out of meta tensor` — VAE decoder 卡在 meta 设备，无法移到 CPU。AnimateDiff 降级为逐帧渲染。
+
+**逐帧渲染 (fallback) 结果：7/8 CLEAR — 历史最佳！**
+
+| 帧 | ratio | 判定 |
+|---|---|---|
+| 0 | 2.62 | CLEAR |
+| 1 | 2.42 | CLEAR |
+| 2 | 3.92 | CLEAR |
+| 3 | 1.49 | BLUR |
+| 4 | 2.38 | CLEAR |
+| 5 | 2.67 | CLEAR |
+| 6 | 4.68 | CLEAR |
+| 7 | 4.68 | CLEAR |
+
+**7/8 CLEAR — 创纪录。** 纹理立方体 + 高 conditioning_scale 效果显著。帧 3 仍是随机性 BLUR。
+
+**需修复：** VAE CPU decode 的 meta tensor 问题。修复后 AnimateDiff 应该能同时拿到高 ratio + 时序一致性。
+
+---
