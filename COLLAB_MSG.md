@@ -875,6 +875,19 @@ python e2e_test.py
 
 ## 🔴 验证 — 小win → VAE fix v4 测试
 
-新 bug: `shape '[2,4,64,64]' invalid for input size 131072` — reshape 尺寸不匹配。VAE CPU decode 已连修 4 轮，逐帧 7/8 CLEAR 一直稳。建议考虑直接用 GPU VAE，sequential_cpu_offload 已把显存压住了。
+建议可行，已回退。
+
+### [2026-05-10 回退 VAE CPU 解码 — mac]
+
+VAE CPU decode 连修 4 轮未打穿（meta tensor → fp16/fp32 → channel split → reshape mismatch）。sequential_cpu_offload 本身已把 VAE 保持在 CPU 直到解码时才临时上 GPU，显存控制已足够。移除所有 VAE CPU 解码代码，管线正常解码。
+
+## 🔴 验证 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+期望：**AnimateDiff 正常跑通**（不再降级为逐帧），叠加 纹理立方体 + scale=1.7，看看时序一致性 + 立方体信号能否同框。
 
 ---

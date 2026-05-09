@@ -42,7 +42,6 @@ class ControlNetRenderer:
 
         self.base_model_id = base_model_id
         self._animatediff_loaded = False
-        self._cpu_vae = None  # 独立 CPU VAE，绕过 sequential offload hooks
         print("ControlNet pipeline loaded successfully.")
 
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
@@ -182,8 +181,7 @@ class ControlNetRenderer:
                         num_inference_steps: int = 25,
                         guidance_scale: float = 7.5,
                         seed: int = 42,
-                        controlnet_conditioning_scale: float = 1.0,
-                        vae_cpu_decode: bool = True) -> list[str]:
+                        controlnet_conditioning_scale: float = 1.0) -> list[str]:
         """
         AnimateDiff + ControlNet 联合生成。
 
@@ -195,7 +193,6 @@ class ControlNetRenderer:
             guidance_scale: CFG scale
             seed: 随机种子
             controlnet_conditioning_scale: ControlNet 注入强度
-            vae_cpu_decode: VAE 在 CPU 上解码 (默认 True)。扩散在 GPU，解码在 CPU
 
         Returns:
             输出 RGB 帧路径列表
@@ -234,49 +231,15 @@ class ControlNetRenderer:
                 width=512,
                 height=512,
                 generator=generator,
-                output_type="latent",  # 跳过 VAE 解码，返回 latents
             )
-
-        # VAE 解码
-        # AnimateDiff latent 可能 (B, N*4, H, W) 堆叠，拆分到 (N, 4, H, W)
-        latents = output.frames[0]
-        if latents.dim() == 3:
-            latents = latents.unsqueeze(0)
-        if latents.shape[1] > 4:
-            n_frames = latents.shape[1] // 4
-            latents = latents.reshape(n_frames, 4, *latents.shape[2:])
-
-        if vae_cpu_decode and self.device.type == "cuda":
-            # 独立 CPU VAE — 不碰管线 VAE 的 accelerate hooks
-            if self._cpu_vae is None:
-                from diffusers import AutoencoderKL
-                print("Loading CPU VAE for offloaded decode...")
-                self._cpu_vae = AutoencoderKL.from_pretrained(
-                    self.base_model_id, subfolder="vae",
-                    torch_dtype=torch.float32,
-                ).to("cpu")
-            vae = self._cpu_vae
-            print(f"VAE decode on CPU ({latents.shape[0]} frames)...")
-        else:
-            vae = self.animate_pipe.vae
-
-        frames = []
-        scaling = vae.config.scaling_factor
-        for i in range(latents.shape[0]):
-            latent = latents[i:i+1].to(device=vae.device, dtype=vae.dtype)
-            with torch.inference_mode():
-                decoded = vae.decode(latent / scaling).sample
-            decoded = (decoded / 2 + 0.5).clamp(0, 1)
-            decoded = decoded.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
-            decoded = (decoded * 255).round().astype("uint8")
-            frames.append(Image.fromarray(decoded))
 
         os.makedirs(output_dir, exist_ok=True)
         output_paths = []
-        for i, frame in enumerate(frames):
+        for i, frame in enumerate(output.frames[0]):
             out = os.path.join(output_dir, f"rgb_frame_{i:04d}.png")
             frame.save(out)
             output_paths.append(out)
+
 
         print(f"AnimateDiff complete: {len(output_paths)} frames → {output_dir}")
         return output_paths
