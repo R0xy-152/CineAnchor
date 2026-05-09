@@ -686,3 +686,29 @@ python e2e_test.py
 3. 清晰帧数是否从上次的 0/8 提升
 
 ---
+
+### [2026-05-09 显存优化 — mac]
+
+**问题：** RTX 4060 8GB 专用 GPU 内存在 AnimateDiff (8帧) 时跑满，但共享 GPU 内存空闲。
+
+**原理：** Windows 的"共享 GPU 内存"本质是系统 RAM 被 WDDM 驱动暴露给 GPU。PyTorch 不会自动用，但 diffusers 可以把模型组件卸载到 CPU 内存，从而释放专用 GPU 内存。
+
+**改动：**
+- AnimateDiff 管线: `enable_model_cpu_offload()` → `enable_sequential_cpu_offload()` — 同一时刻只有活跃子模型在 GPU，其他全部在 CPU 内存 (= 共享 GPU 内存)
+- 新增 `enable_vae_slicing()` + `enable_vae_tiling()` + `enable_attention_slicing()` — 降低峰值显存
+- 基础 ControlNet 管线也加了 VAE 优化
+
+**预期效果：**
+- 专用 GPU 内存峰值应该从 ~8GB 降到 ~4-5GB
+- 共享 GPU 内存会看到更多使用（模型组件在 CPU RAM 中）
+- 推理速度可能轻微下降（CPU↔GPU 搬运），但避免了 OOM
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+同时打开任务管理器 → 性能 → GPU，观察专用/共享 GPU 内存使用变化。
+
+---

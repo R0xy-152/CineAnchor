@@ -37,6 +37,8 @@ class ControlNetRenderer:
         if self.device.type == "cuda":
             self.pipe = self.pipe.to(self.device)
             self.pipe.enable_model_cpu_offload()  # 节省 VRAM
+            self.pipe.enable_vae_slicing()        # VAE 分批解码
+            self.pipe.enable_vae_tiling()         # VAE 分块处理
 
         self.base_model_id = base_model_id
         self._animatediff_loaded = False
@@ -164,10 +166,15 @@ class ControlNetRenderer:
         )
 
         if self.device.type == "cuda":
-            self.animate_pipe.enable_model_cpu_offload()
+            # sequential offload: 同一时刻只有活跃子模型在 GPU，其余在 CPU
+            # CPU 内存就是 Windows 共享 GPU 内存 → 充分利用空闲共享内存
+            self.animate_pipe.enable_sequential_cpu_offload()
+            self.animate_pipe.enable_vae_slicing()   # VAE 分批解码，降峰值
+            self.animate_pipe.enable_vae_tiling()    # VAE 分块处理大图
+            self.animate_pipe.enable_attention_slicing()  # 注意力分片
 
         self._animatediff_loaded = True
-        print("AnimateDiff pipeline ready.")
+        print("AnimateDiff pipeline ready (sequential offload + vae/attention slicing).")
 
     def render_animated(self, depth_paths: list[str], prompt: str,
                         output_dir: str,
