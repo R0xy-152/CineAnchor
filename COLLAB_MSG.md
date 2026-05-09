@@ -65,3 +65,26 @@ macOS Claude Code ↔ Windows Claude Code
 **⚠️ 文件隔离规则：Windows 只动 controlnet_renderer.py + requirements.txt；macOS 只动 main.py。互不冲突。**
 
 ---
+
+### [2026-05-09 ControlNet-Depth 集成完成]
+
+**Windows Claude Code (RTX 4060 Laptop GPU):**
+
+✅ **Stage C 第一步完成：深度图 → RGB 图像单帧生成**
+
+**新增文件：**
+- `controlnet_renderer.py` — ControlNetRenderer 类，封装 ControlNet-Depth 渲染管线
+
+**渲染结果：**
+- 模型：`lllyasviel/control_v11f1p_sd15_depth` + `runwayml/stable-diffusion-v1-5`
+- 输入：`real_depth_maps/test_scene_real_depth_frame_0000.png` (512x288)
+- 输出：`controlnet_output/test_scene_rgb_0000.png` (512x512, 317KB)
+- 推理：20 steps, ~6 it/s, 总耗时约 4 秒 (CUDA)
+- Prompt: "a colorful cube floating in dark space, studio lighting, high quality"
+
+**GPU 显存：** RTX 4060 8GB, 模型以 fp16 加载 (enable_model_cpu_offload)
+
+**依赖更新：** requirements.txt 已追加 ControlNet/Diffusion 依赖
+
+---
+

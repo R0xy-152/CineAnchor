@@ -21,8 +21,9 @@ numpy>=1.24.0
 plyfile>=1.0.0
 pillow>=10.0.0
 
-# --- Optional: Diffusion / ControlNet ---
-# diffusers>=0.28.0
-# transformers>=4.36.0
-# controlnet-aux>=0.0.7
-# opencv-python>=4.8.0
+# --- ControlNet/Diffusion ---
+diffusers>=0.28.0
+transformers>=4.36.0
+accelerate
+controlnet_aux>=0.0.7
+opencv-python>=4.8.0
