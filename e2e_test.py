@@ -46,11 +46,16 @@ def main():
             shutil.rmtree(d)
             print(f"  Cleaned: {d}/")
 
-    # ---- Step 0: 检查 PLY ----
-    ply_path = "test_scene.ply"
+    # ---- Step 0: 检查 PLY (优先纹理立方体) ----
+    ply_path = "scene_textured_cube.ply"
     if not os.path.exists(ply_path):
-        print(f"ERROR: {ply_path} not found. Run: python generate_cube_splat.py")
-        sys.exit(1)
+        ply_path = "test_scene.ply"
+        if not os.path.exists(ply_path):
+            print(f"ERROR: {ply_path} not found. Run: python generate_cube_splat.py")
+            sys.exit(1)
+        print(f"  Using: {ply_path} (textured cube not found)")
+    else:
+        print(f"  Using: {ply_path} (textured cube)")
 
     # ---- Step 1: 深度图渲染 (全局归一化) ----
     print("\n[1/3] Rendering depth maps with global normalization...")
@@ -83,7 +88,7 @@ def main():
         cn_renderer.render_animated(
             depth_paths, prompt, frame_dir,
             num_inference_steps=25, seed=42,
-            controlnet_conditioning_scale=1.0,
+            controlnet_conditioning_scale=1.3,
         )
     except Exception as e:
         print(f"  AnimateDiff not available ({e}), falling back to per-frame")

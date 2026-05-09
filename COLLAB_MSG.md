@@ -663,3 +663,26 @@ python e2e_test.py
 - 配合纹理立方体测试
 
 ---
+
+### [2026-05-09 AnimateDiff conditioning_scale 修复 — mac]
+
+**修复：** AnimateDiff 的 motion adapter 时间平滑压过了 ControlNet 深度约束 → 立方体消失。
+
+**改动：**
+- `e2e_test.py`: `controlnet_conditioning_scale` 1.0 → 1.3，优先使用 `scene_textured_cube.ply`
+- `video_renderer.py`: `controlnet_conditioning_scale` 1.0 → 1.3
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python generate_cube_splat.py          # 确保纹理立方体 PLY 存在
+python e2e_test.py
+```
+
+**验证点：**
+1. 立方体是否重新出现在 RGB 帧中
+2. 时序一致性是否保留 (ratio 标准差小)
+3. 清晰帧数是否从上次的 0/8 提升
+
+---
