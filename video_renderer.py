@@ -147,19 +147,35 @@ class VideoRenderer:
     # ---- 完整管线 ----
 
     def render_pipeline(self, depth_map_paths: list[str], prompt: str,
-                        scene_id: str, fps: int = 24) -> str:
-        """深度图序列 → RGB 帧 → MP4 视频（完整管线）"""
+                        scene_id: str, fps: int = 24,
+                        interpolation: int = 1) -> str:
+        """深度图序列 → RGB 帧 → (插值) → MP4 视频（完整管线）
+
+        Args:
+            interpolation: 帧插值倍数。1=不插值, 3=每对插入2帧
+        """
         if not depth_map_paths:
             raise ValueError("No depth maps provided")
 
         print(f"[VideoRenderer] Pipeline start: {len(depth_map_paths)} frames, "
-              f"prompt='{prompt[:50]}...', fps={fps}")
+              f"prompt='{prompt[:50]}...', fps={fps}, interpolation={interpolation}x")
 
         # Step 1: 帧生成
         frame_paths = self._generate_frames(depth_map_paths, prompt)
 
-        # Step 2: 视频合成
-        video_name = f"{scene_id}_{len(frame_paths)}frames_{fps}fps.mp4"
+        # Step 2: 帧插值 (可选)
+        if interpolation > 1:
+            from frame_interpolator import FrameInterpolator
+            interp = FrameInterpolator()
+            interp_dir = os.path.join(self.output_dir, "_interpolated")
+            frame_paths = interp.interpolate_sequence(
+                frame_paths, multiplier=interpolation, output_dir=interp_dir
+            )
+
+        # Step 3: 视频合成
+        video_name = (f"{scene_id}_{len(frame_paths)}frames_{fps}fps"
+                      + (f"_x{interpolation}" if interpolation > 1 else "")
+                      + ".mp4")
         video_path = os.path.join(self.output_dir, video_name)
 
         return self.stitch(frame_paths, video_path, fps)

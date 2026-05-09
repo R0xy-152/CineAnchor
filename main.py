@@ -82,6 +82,7 @@ class RenderVideoRequest(BaseModel):
     scene_id: str
     prompt: str
     fps: int = 24
+    interpolation: int = 1  # 帧插值倍数: 1=不插, 3=3x帧率
 
 class HealthResponse(BaseModel):
     status: str
@@ -198,7 +199,8 @@ async def render_video(request: RenderVideoRequest):
             depth_map_paths=depth_map_list,
             prompt=prompt,
             scene_id=scene_id,
-            fps=fps
+            fps=fps,
+            interpolation=request.interpolation
         )
         recorded_camera_frames.pop(scene_id, None)
         recorded_depth_map_paths.pop(scene_id, None)

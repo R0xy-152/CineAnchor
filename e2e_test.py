@@ -64,7 +64,7 @@ def main():
     print(f"  Generated {len(depth_map_paths)} globally-normalized depth maps")
 
     # ---- Step 2: ControlNet 批量渲染 ----
-    print("\n[2/3] Generating RGB frames via ControlNet-Depth...")
+    print("\n[2/4] Generating RGB frames via ControlNet-Depth...")
     from controlnet_renderer import ControlNetRenderer
     cn_renderer = ControlNetRenderer()
 
@@ -73,10 +73,11 @@ def main():
     cn_renderer.render_batch(renderer.output_dir, prompt, frame_dir,
                              num_inference_steps=20)
 
-    # ---- Step 3: ffmpeg 视频合成 ----
-    print("\n[3/3] Stitching frames into video...")
-    from video_renderer import VideoRenderer
-    vr = VideoRenderer()
+    # ---- Step 3: 帧插值 (可选, 平滑帧间过渡) ----
+    print("\n[3/4] Interpolating frames...")
+    from frame_interpolator import FrameInterpolator
+    interpolator = FrameInterpolator()
+    print(f"  Interpolation mode: {interpolator.mode}")
 
     frame_paths = sorted([
         os.path.join(frame_dir, f) for f in os.listdir(frame_dir)
@@ -87,12 +88,22 @@ def main():
         print("ERROR: No RGB frames generated!")
         sys.exit(1)
 
+    interp_dir = "controlnet_output/e2e_interpolated"
+    frame_paths = interpolator.interpolate_sequence(
+        frame_paths, multiplier=3, output_dir=interp_dir
+    )
+
+    # ---- Step 4: ffmpeg 视频合成 ----
+    print("\n[4/4] Stitching frames into video...")
+    from video_renderer import VideoRenderer
+    vr = VideoRenderer()
+
     output = vr.stitch(frame_paths, "videos/e2e_test_output.mp4", fps=8)
 
     print("\n" + "=" * 60)
     print(f"  ✅ End-to-End Test Complete!")
     print(f"  Output: {output}")
-    print(f"  Frames: {len(frame_paths)}")
+    print(f"  Frames: {len(frame_paths)} (3x interpolated)")
     print("=" * 60)
 
 

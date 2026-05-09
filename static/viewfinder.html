@@ -84,6 +84,14 @@
   <label>FPS</label>
   <input id="fps" type="number" value="8" min="1" max="60">
 
+  <label>帧插值</label>
+  <select id="interpolation">
+    <option value="1">1x (不插值)</option>
+    <option value="2">2x</option>
+    <option value="3" selected>3x (推荐)</option>
+    <option value="4">4x</option>
+  </select>
+
   <label>相机模式</label>
   <div style="display:flex;gap:4px">
     <button class="btn-mode active" id="btn-orbit" onclick="setMode('orbit')">Orbit</button>
@@ -346,7 +354,8 @@ window.renderVideo = async function() {
   btn.disabled = true;
 
   try {
-    const result = await apiCall('POST', '/render/video', { scene_id: sceneId, prompt, fps });
+    const interp = parseInt(document.getElementById('interpolation').value) || 1;
+    const result = await apiCall('POST', '/render/video', { scene_id: sceneId, prompt, fps, interpolation: interp });
     btn.textContent = '生成视频';
     btn.disabled = false;
     alert(`视频已生成: ${API}${result.video_url}`);
