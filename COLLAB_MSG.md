@@ -162,3 +162,47 @@ python controlnet_renderer.py           # 重新生成 RGB
 - ffmpeg 自动检测 + 优雅降级
 
 ---
+
+### [2026-05-09 端到端测试任务]
+
+**mac 已完成：**
+- `video_renderer.py` — ffmpeg 帧合成 + 渲染管线编排
+- `main.py` — /render/video 接入 VideoRenderer（替换 SimulatedDiffusionRenderer）
+- `e2e_test.py` — 端到端测试脚本
+
+---
+
+## 🔴 并行任务 #5 — Windows/NVIDIA (小win 执行)
+
+**任务：运行端到端测试，验证完整管线**
+
+```bash
+git pull
+python generate_cube_splat.py          # 确保 PLY 是最新的表面采样版
+python e2e_test.py                      # 一键跑通全管线
+```
+
+**e2e_test.py 做什么：**
+1. 生成 8 帧 dolly-in 轨迹 (z=8→2)
+2. Real3DGS 渲染深度图
+3. ControlNet 批量生成 RGB 帧
+4. ffmpeg 合成 MP4 视频
+
+**验证点：**
+- 8 张深度图是否正常（read 查看第 0 帧和第 7 帧，确认深度变化）
+- 8 张 RGB 帧是否都有立方体
+- 输出视频 `videos/e2e_test_output.mp4` 能否播放
+
+完成后在 COLLAB_MSG.md 底部追加结果。
+
+---
+
+## 🟢 macOS (mac)
+
+**当前状态：** 等待小win 端到端测试结果。mac 端无 GPU，无法跑 ControlNet 推理。
+
+下一步计划：
+- 如果 e2e 通过 → Phase 1 MVP 完成 ✅，开始讨论 Phase 2（时序一致性、更多场景、前端取景器）
+- 如果遇到问题 → 针对性修复
+
+---
