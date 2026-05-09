@@ -10,15 +10,31 @@ class ControlNetRenderer:
     """
     ControlNet-Depth 渲染器：将深度图作为条件输入，使用 Stable Diffusion 生成 RGB 图像。
 
-    两种批量模式：
-    - render_batch(): 逐帧独立生成 (当前)
-    - render_animated(): AnimateDiff 时序注意力 (新增，帧间一致)
+    SD 1.5 模式 (默认):
+    - render_batch(): 逐帧独立生成
+    - render_animated(): AnimateDiff 时序注意力
+
+    SDXL 模式 (use_sdxl=True):
+    - render_batch(): 逐帧独立生成 (768×768)
+    - render_animated(): 降级到逐帧 (无 AnimateDiff SDXL 支持)
+    - 使用 controlnet-depth-sdxl-1.0-small (~320MB) 节省 VRAM
     """
 
     def __init__(self, controlnet_id="lllyasviel/control_v11f1p_sd15_depth",
-                 base_model_id="runwayml/stable-diffusion-v1-5"):
+                 base_model_id="runwayml/stable-diffusion-v1-5",
+                 use_sdxl: bool = False,
+                 sdxl_resolution: int = 768):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_sdxl = use_sdxl
+        self.target_size = sdxl_resolution if use_sdxl else 512
+
+        if use_sdxl:
+            controlnet_id = "diffusers/controlnet-depth-sdxl-1.0-small"
+            base_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+
         print(f"Initializing ControlNetRenderer on device: {self.device}")
+        print(f"  Mode: {'SDXL' if use_sdxl else 'SD 1.5'}, "
+              f"target: {self.target_size}×{self.target_size}")
 
         print(f"Loading ControlNet: {controlnet_id} ...")
         self.controlnet = ControlNetModel.from_pretrained(
@@ -27,18 +43,27 @@ class ControlNetRenderer:
         )
 
         print(f"Loading base SD model: {base_model_id} ...")
-        self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
-            base_model_id,
-            controlnet=self.controlnet,
-            torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
-            safety_checker=None,
-        )
+
+        if use_sdxl:
+            from diffusers import StableDiffusionXLControlNetPipeline
+            self.pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+                base_model_id,
+                controlnet=self.controlnet,
+                torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
+            )
+        else:
+            self.pipe = StableDiffusionControlNetPipeline.from_pretrained(
+                base_model_id,
+                controlnet=self.controlnet,
+                torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
+                safety_checker=None,
+            )
 
         if self.device.type == "cuda":
             self.pipe = self.pipe.to(self.device)
-            self.pipe.enable_model_cpu_offload()  # 节省 VRAM
-            self.pipe.enable_vae_slicing()        # VAE 分批解码
-            self.pipe.enable_vae_tiling()         # VAE 分块处理
+            self.pipe.enable_model_cpu_offload()
+            self.pipe.enable_vae_slicing()
+            self.pipe.enable_vae_tiling()
 
         self.base_model_id = base_model_id
         self._animatediff_loaded = False
@@ -80,9 +105,9 @@ class ControlNetRenderer:
         depth_image = Image.open(depth_map_path).convert("RGB")
         print(f"Input depth map size: {depth_image.size}")
 
-        # 调整到 SD 1.5 期望的 512 分辨率
-        if depth_image.size != (512, 512):
-            depth_image = depth_image.resize((512, 512), Image.LANCZOS)
+        ts = (self.target_size, self.target_size)
+        if depth_image.size != ts:
+            depth_image = depth_image.resize(ts, Image.LANCZOS)
 
         if enhance_depth:
             depth_image = self._enhance_depth(depth_image)
@@ -156,6 +181,11 @@ class ControlNetRenderer:
 
     def _load_animatediff(self):
         """加载 AnimateDiff motion adapter 和时序管线 (首次调用时)"""
+        if self.use_sdxl:
+            raise RuntimeError(
+                "AnimateDiff not available in SDXL mode. "
+                "Use render_batch() for per-frame rendering."
+            )
         if self._animatediff_loaded:
             return
 
@@ -219,14 +249,21 @@ class ControlNetRenderer:
             return self._fallback_batch(depth_paths, prompt, output_dir, seed,
                                         controlnet_conditioning_scale)
 
+        # SDXL 模式: 无 AnimateDiff，降级逐帧渲染
+        if self.use_sdxl:
+            print("[SDXL] AnimateDiff not available, rendering per-frame")
+            return self._fallback_batch(depth_paths, prompt, output_dir, seed,
+                                        controlnet_conditioning_scale)
+
         self._load_animatediff()
 
         # 加载并预处理所有深度图
         depth_images = []
         for p in depth_paths:
             img = Image.open(p).convert("RGB")
-            if img.size != (512, 512):
-                img = img.resize((512, 512), Image.LANCZOS)
+            ts = (self.target_size, self.target_size)
+            if img.size != ts:
+                img = img.resize(ts, Image.LANCZOS)
             if enhance_depth:
                 img = self._enhance_depth(img)
             depth_images.append(img)
@@ -249,8 +286,8 @@ class ControlNetRenderer:
                 controlnet_conditioning_scale=controlnet_conditioning_scale,
                 conditioning_frames=depth_images,
                 num_frames=len(depth_images),
-                width=512,
-                height=512,
+                width=self.target_size,
+                height=self.target_size,
                 generator=generator,
             )
 

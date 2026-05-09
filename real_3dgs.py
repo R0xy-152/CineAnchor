@@ -179,7 +179,9 @@ class Real3DGS:
             return filepath
 
     def render_depth_maps_batch(self, scene_id: str,
-                                 camera_poses: list[dict]) -> list[str]:
+                                 camera_poses: list[dict],
+                                 width: int | None = None,
+                                 height: int | None = None) -> list[str]:
         """
         批量渲染深度图，使用全局百分位归一化确保帧间深度一致性。
 
@@ -187,20 +189,31 @@ class Real3DGS:
         - 收集所有帧的原始深度 → 计算统一的 1%-99% 百分位 min/max
         - 所有帧用同一范围归一化 → 帧间不会出现深度漂移
         - ControlNet 看到稳定一致的几何输入 → 减少帧间扭曲
+
+        Args:
+            width, height: 可覆盖渲染分辨率 (默认使用 self.width/self.height)
         """
         if not camera_poses:
             return []
 
-        print(f"\n[BatchRender] Rendering {len(camera_poses)} frames with "
-              f"GLOBAL depth normalization...")
+        rw = width if width is not None else self.width
+        rh = height if height is not None else self.height
+
+        print(f"\n[BatchRender] Rendering {len(camera_poses)} frames "
+              f"({rw}×{rh}) with GLOBAL depth normalization...")
 
         # Phase 1: 渲染所有帧，收集原始深度数据
         raw_depths = []
         for i, pose in enumerate(camera_poses):
             view_matrix = self._pose_to_view_matrix(pose)
+            # 按比例调整内参
+            fx = self.fx * (rw / self.width)
+            fy = self.fy * (rh / self.height)
+            cx = rw / 2
+            cy = rh / 2
             K = torch.tensor([
-                [self.fx, 0, self.cx],
-                [0, self.fy, self.cy],
+                [fx, 0, cx],
+                [0, fy, cy],
                 [0, 0, 1]
             ], dtype=torch.float32, device=self.device)
 
@@ -212,8 +225,8 @@ class Real3DGS:
                 colors=self.colors,
                 viewmats=view_matrix.unsqueeze(0),
                 Ks=K.unsqueeze(0),
-                width=self.width,
-                height=self.height,
+                width=rw,
+                height=rh,
                 near_plane=self.near_plane,
                 far_plane=self.far_plane,
                 render_mode="RGB+ED"
