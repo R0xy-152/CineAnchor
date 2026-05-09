@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CineAnchor Viewfinder</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; background: #111; }
+
+  #canvas { display: block; }
+
+  #panel {
+    position: fixed; top: 16px; right: 16px; width: 280px;
+    background: rgba(20,20,30,0.92); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 20px; color: #ccc; backdrop-filter: blur(12px);
+    z-index: 10; font-size: 13px;
+  }
+  #panel h2 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 14px; }
+  #panel label { display: block; font-size: 11px; color: #888; margin-bottom: 3px; margin-top: 10px; }
+  #panel select, #panel input, #panel textarea {
+    width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06); color: #ddd; font-size: 12px; outline: none;
+  }
+  #panel textarea { resize: vertical; min-height: 40px; }
+  #panel button {
+    width: 100%; padding: 9px; border-radius: 6px; border: none;
+    font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 10px;
+    transition: opacity 0.15s;
+  }
+  #panel button:active { opacity: 0.7; }
+  .btn-record { background: #4f46e5; color: #fff; }
+  .btn-render { background: #16a34a; color: #fff; }
+  .btn-clear { background: rgba(255,255,255,0.08); color: #aaa; }
+  .btn-record.recording { background: #dc2626; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 50% { opacity: 0.6; } }
+
+  #status { font-size: 11px; color: #888; margin-top: 12px; line-height: 1.5; }
+  #status .ok { color: #4ade80; }
+  #status .err { color: #f87171; }
+  #frame-count { font-size: 28px; font-weight: 700; color: #fff; text-align: center; margin: 8px 0; }
+
+  #pose-hud {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(20,20,30,0.85); border-radius: 8px;
+    padding: 10px 14px; color: #888; font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace; z-index: 10;
+  }
+
+  #instructions {
+    position: fixed; bottom: 16px; right: 16px;
+    color: #555; font-size: 11px; text-align: right; z-index: 10;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h2>CineAnchor Viewfinder</h2>
+
+  <label>场景</label>
+  <select id="scene-select">
+    <option value="test_scene">Test Cube</option>
+    <option value="office_scene">Office</option>
+    <option value="forest_path">Forest Path</option>
+  </select>
+
+  <label>Prompt</label>
+  <textarea id="prompt" placeholder="描述你想要的画面风格...">a colorful cube floating in dark space, studio lighting, high quality</textarea>
+
+  <label>FPS</label>
+  <input id="fps" type="number" value="8" min="1" max="60">
+
+  <div id="frame-count">0</div>
+  <div style="text-align:center;color:#666;font-size:11px;margin-top:-4px">已录制帧</div>
+
+  <button class="btn-record" id="btn-record" onclick="toggleRecord()">录制帧</button>
+  <button class="btn-render" id="btn-render" onclick="renderVideo()">生成视频</button>
+  <button class="btn-clear" onclick="clearFrames()">清空帧</button>
+
+  <div id="status">
+    <span id="api-status">API: 检测中...</span>
+  </div>
+</div>
+
+<div id="pose-hud">
+  pos: <span id="hud-pos">--</span><br>
+  rot: <span id="hud-quat">--</span>
+</div>
+
+<div id="instructions">
+  拖拽旋转 | 滚轮缩放 | 右键平移<br>
+  Space 录制单帧 | R 开始/停止连续录制
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---- Scene Setup ----
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0.5, 8);
+camera.lookAt(0, 0, 0);
+
+// Orbit Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1.5;
+controls.maxDistance = 20;
+controls.update();
+
+// Grid
+scene.add(new THREE.GridHelper(10, 20, 0x333355, 0x222244));
+
+// Axes
+const axes = new THREE.AxesHelper(3);
+scene.add(axes);
+
+// Scene proxy cube (matches 3DGS test_scene: 2x2x2 at origin)
+const cubeGeo = new THREE.BoxGeometry(2, 2, 2);
+const cubeMat = new THREE.MeshStandardMaterial({
+  color: 0x6366f1, roughness: 0.3, metalness: 0.1, wireframe: false,
+  transparent: true, opacity: 0.5
+});
+const cube = new THREE.Mesh(cubeGeo, cubeMat);
+scene.add(cube);
+
+// Wireframe overlay for better depth perception
+const wire = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 2, 2),
+  new THREE.MeshBasicMaterial({ color: 0x818cf8, wireframe: true, transparent: true, opacity: 0.3 })
+);
+scene.add(wire);
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x404060, 2));
+const key = new THREE.DirectionalLight(0xffffff, 3);
+key.position.set(5, 8, 3);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x8888ff, 1);
+fill.position.set(-3, 1, -2);
+scene.add(fill);
+
+// Camera frustum helper (shows where the 3DGS camera is looking)
+const frustumHelper = new THREE.CameraHelper(
+  new THREE.PerspectiveCamera(50, 512 / 288, 0.1, 10)
+);
+scene.add(frustumHelper);
+
+// ---- API Client ----
+const API = 'http://localhost:8000';
+let apiOk = false;
+let frameId = 0;
+
+async function checkAPI() {
+  try {
+    const r = await fetch(`${API}/health`);
+    const d = await r.json();
+    apiOk = d.status === 'ok';
+    document.getElementById('api-status').innerHTML =
+      `API: <span class="ok">${d.render_mode}</span> (${d.platform})`;
+  } catch {
+    document.getElementById('api-status').innerHTML =
+      'API: <span class="err">离线</span>';
+  }
+}
+checkAPI();
+setInterval(checkAPI, 5000);
+
+async function apiCall(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(`${API}${path}`, opts);
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || r.statusText);
+  }
+  return r.json();
+}
+
+// ---- Camera Pose ----
+function getPose() {
+  return {
+    position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+    rotation: { x: camera.quaternion.x, y: camera.quaternion.y, z: camera.quaternion.z, w: camera.quaternion.w }
+  };
+}
+
+function updateHUD() {
+  const p = camera.position;
+  const q = camera.quaternion;
+  document.getElementById('hud-pos').textContent =
+    `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
+  document.getElementById('hud-quat').textContent =
+    `${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.z.toFixed(3)}, ${q.w.toFixed(3)}`;
+}
+
+// Update frustum helper position
+function updateFrustum() {
+  frustumHelper.position.copy(camera.position);
+  frustumHelper.quaternion.copy(camera.quaternion);
+}
+
+// ---- Recording ----
+let recording = false;
+let recordInterval = null;
+let lastRecordedPose = null;
+
+window.toggleRecord = async function() {
+  if (recording) {
+    stopRecording();
+    return;
+  }
+
+  const sceneId = document.getElementById('scene-select').value;
+  if (!apiOk) { alert('API 离线，请先启动后端: python main.py'); return; }
+
+  // Initialize scene
+  try {
+    await apiCall('POST', `/scene/create?scene_id=${sceneId}`);
+  } catch (e) {
+    alert(`场景初始化失败: ${e.message}`);
+    return;
+  }
+
+  startRecording();
+};
+
+function startRecording() {
+  recording = true;
+  const btn = document.getElementById('btn-record');
+  btn.textContent = '停止录制 (Space)';
+  btn.classList.add('recording');
+
+  // Capture one frame immediately
+  captureFrame();
+
+  // Then capture every 500ms while camera is moving
+  recordInterval = setInterval(() => {
+    const pose = getPose();
+    // Only capture if camera moved significantly
+    if (lastRecordedPose) {
+      const dp = Math.sqrt(
+        (pose.position.x - lastRecordedPose.position.x) ** 2 +
+        (pose.position.y - lastRecordedPose.position.y) ** 2 +
+        (pose.position.z - lastRecordedPose.position.z) ** 2
+      );
+      if (dp < 0.1) return; // skip if barely moved
+    }
+    captureFrame();
+  }, 500);
+}
+
+function stopRecording() {
+  recording = false;
+  const btn = document.getElementById('btn-record');
+  btn.textContent = '录制帧';
+  btn.classList.remove('recording');
+  if (recordInterval) { clearInterval(recordInterval); recordInterval = null; }
+}
+
+async function captureFrame() {
+  const sceneId = document.getElementById('scene-select').value;
+  const pose = getPose();
+  lastRecordedPose = pose;
+
+  try {
+    await apiCall('POST', '/camera/record_frame', {
+      scene_id: sceneId,
+      frame_id: frameId,
+      camera_pose: pose
+    });
+    frameId++;
+    document.getElementById('frame-count').textContent = frameId;
+  } catch (e) {
+    console.error('Record frame failed:', e);
+  }
+}
+
+// Single frame capture
+window.captureSingleFrame = captureFrame;
+
+// ---- Render ----
+window.renderVideo = async function() {
+  if (frameId === 0) { alert('请先录制帧'); return; }
+  if (!apiOk) { alert('API 离线'); return; }
+
+  const sceneId = document.getElementById('scene-select').value;
+  const prompt = document.getElementById('prompt').value;
+  const fps = parseInt(document.getElementById('fps').value) || 8;
+
+  const btn = document.getElementById('btn-render');
+  btn.textContent = '渲染中...';
+  btn.disabled = true;
+
+  try {
+    const result = await apiCall('POST', '/render/video', { scene_id: sceneId, prompt, fps });
+    btn.textContent = '生成视频';
+    btn.disabled = false;
+    alert(`视频已生成: ${API}${result.video_url}`);
+  } catch (e) {
+    btn.textContent = '生成视频';
+    btn.disabled = false;
+    alert(`渲染失败: ${e.message}`);
+  }
+};
+
+// ---- Clear ----
+window.clearFrames = async function() {
+  const sceneId = document.getElementById('scene-select').value;
+  try { await apiCall('DELETE', `/clear_data/${sceneId}`); } catch {}
+  frameId = 0;
+  lastRecordedPose = null;
+  document.getElementById('frame-count').textContent = '0';
+};
+
+// ---- Keyboard ----
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (recording) {
+      captureFrame();
+    } else {
+      toggleRecord();
+    }
+  }
+  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    toggleRecord();
+  }
+});
+
+// ---- Render Loop ----
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  updateHUD();
+  updateFrustum();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---- Resize ----
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

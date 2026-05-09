@@ -2,8 +2,9 @@ import os
 import shutil
 import sys
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import uvicorn
@@ -45,10 +46,20 @@ def _init_render_service():
 # --- FastAPI 应用初始化 ---
 app = FastAPI(title="CineAnchor API", description="API for controlled AI video generation with 3D spatial anchors.")
 
+# CORS — 允许前端跨域访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 _init_render_service()
 video_renderer = VideoRenderer()
 
 # --- 挂载静态文件目录 ---
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 app.mount("/depth_maps", StaticFiles(directory=render_service.output_dir), name="depth_maps")
 app.mount("/videos", StaticFiles(directory=video_renderer.output_dir), name="videos")
 
@@ -83,11 +94,7 @@ class HealthResponse(BaseModel):
 
 @app.get("/", summary="Root", tags=["Status"])
 async def read_root():
-    return {
-        "message": "Welcome to CineAnchor API!",
-        "render_mode": render_mode,
-        "platform": sys.platform,
-    }
+    return RedirectResponse("/static/viewfinder.html")
 
 @app.get("/health", response_model=HealthResponse, summary="Health check with render capability", tags=["Status"])
 async def health():
