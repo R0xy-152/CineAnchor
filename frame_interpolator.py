@@ -193,9 +193,12 @@ class FrameInterpolator:
             torch.arange(w, device=device, dtype=torch.float32),
             indexing="ij"
         )
+        # squeeze batch dim: flow[0] → [2, H, W]
+        fx = flow[0, 0]  # [H, W]
+        fy = flow[0, 1]  # [H, W]
         # 归一化到 [-1, 1]
-        x = 2.0 * (x + flow[:, 0]) / (w - 1) - 1.0
-        y = 2.0 * (y + flow[:, 1]) / (h - 1) - 1.0
+        x = 2.0 * (x + fx) / (w - 1) - 1.0
+        y = 2.0 * (y + fy) / (h - 1) - 1.0
         return torch.stack([x, y], dim=-1).unsqueeze(0)
 
     @staticmethod
