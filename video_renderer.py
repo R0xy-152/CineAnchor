@@ -100,10 +100,23 @@ class VideoRenderer:
             return None
 
     def _generate_controlnet_frames(self, controlnet, depth_map_paths, prompt):
-        """使用 ControlNet 逐帧生成 RGB"""
+        """使用 ControlNet 逐帧生成 RGB。优先尝试 AnimateDiff 时序模式。"""
         frame_dir = os.path.join(self.output_dir, "_frames")
         os.makedirs(frame_dir, exist_ok=True)
 
+        # 尝试 AnimateDiff 时序一致性生成
+        try:
+            if len(depth_map_paths) >= 2:
+                return controlnet.render_animated(
+                    depth_map_paths, prompt, frame_dir,
+                    num_inference_steps=25, seed=42,
+                    controlnet_conditioning_scale=1.0,
+                )
+        except Exception as e:
+            print(f"[VideoRenderer] AnimateDiff unavailable ({e}), "
+                  f"falling back to per-frame render")
+
+        # 降级: 逐帧独立生成
         frame_paths = []
         for i, depth_path in enumerate(depth_map_paths):
             out_path = os.path.join(frame_dir, f"rgb_frame_{i:04d}.png")

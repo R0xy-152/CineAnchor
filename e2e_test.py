@@ -71,8 +71,24 @@ def main():
 
     prompt = "a colorful cube floating in dark space, studio lighting, high quality"
     frame_dir = "controlnet_output/e2e_frames"
-    cn_renderer.render_batch(renderer.output_dir, prompt, frame_dir,
-                             num_inference_steps=20)
+
+    # 收集深度图路径
+    depth_paths = sorted([
+        os.path.join(renderer.output_dir, f) for f in os.listdir(renderer.output_dir)
+        if f.endswith(".png")
+    ])
+
+    # 优先使用 AnimateDiff 时序一致性生成
+    try:
+        cn_renderer.render_animated(
+            depth_paths, prompt, frame_dir,
+            num_inference_steps=25, seed=42,
+            controlnet_conditioning_scale=1.0,
+        )
+    except Exception as e:
+        print(f"  AnimateDiff not available ({e}), falling back to per-frame")
+        cn_renderer.render_batch(renderer.output_dir, prompt, frame_dir,
+                                 num_inference_steps=20)
 
     # ---- Step 3: 帧插值 (可选, 平滑帧间过渡) ----
     print("\n[3/4] Interpolating frames...")
