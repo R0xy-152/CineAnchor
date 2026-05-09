@@ -257,7 +257,7 @@ class ControlNetRenderer:
         frames = []
         scaling = vae.config.scaling_factor
         for i in range(latents.shape[0]):
-            latent = latents[i:i+1].to(vae.device)
+            latent = latents[i:i+1].to(device=vae.device, dtype=vae.dtype)
             with torch.inference_mode():
                 decoded = vae.decode(latent / scaling).sample
             decoded = (decoded / 2 + 0.5).clamp(0, 1)

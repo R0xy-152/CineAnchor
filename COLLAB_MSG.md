@@ -848,6 +848,17 @@ python e2e_test.py
 | 3 | 1.49 | BLUR |
 | 4-7 | 2.38~4.68 | CLEAR |
 
-逐帧模式在 scale=1.7 + 纹理立方体下 7/8 CLEAR 已确认稳定。VAE CPU decode 需修 fp16/fp32 类型匹配——latent 应先 `.float()` 再送入 CPU VAE。
+逐帧模式在 scale=1.7 + 纹理立方体下 7/8 CLEAR 已确认稳定。
+
+### [2026-05-09 fp16/fp32 类型修复 — mac]
+
+**修复：** latent `.to(device, dtype=vae.dtype)` 自动匹配 CPU VAE 的 fp32。
+
+## 🔴 验证 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
 
 ---
