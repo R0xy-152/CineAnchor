@@ -176,13 +176,11 @@ class Real3DGS:
 if __name__ == "__main__":
     # 简单测试代码
     renderer = Real3DGS("test_scene.ply")
-    # 把相机拉得非常远，视野覆盖极广，确保一定能看到原点的方块
+    # 相机在 z=5 处，180 度绕 Y 轴旋转使相机看向原点 (OpenCV 约定 +Z 为前方)
+    # 四元数 (0, 1, 0, 0) = 绕 Y 轴旋转 180 度
     test_pose = {
-        "position": {"x": 0.0, "y": 0.0, "z": 8.0},
-        "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+        "position": {"x": 0.0, "y": 0.0, "z": 5.0},
+        "rotation": {"x": 0.0, "y": 1.0, "z": 0.0, "w": 0.0}
     }
-    # 强制修改焦距(视野变广)
-    renderer.fx = renderer.width / 1.0
-    renderer.fy = renderer.height / 1.0
     
     renderer.render_depth_map("test_scene", test_pose, 0)

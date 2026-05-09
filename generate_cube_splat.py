@@ -20,7 +20,7 @@ def create_cube_splat(output_path="test_scene.ply", num_points=20000):
     
     # 3. 缩放参数 (非常小的高斯球，形成密集的表面)
     # 3DGS 中 scale 是指数存储的，-4 左右代表非常小的点
-    scale = np.full((num_points, 3), -4.0, dtype=np.float32)
+    scale = np.full((num_points, 3), -1.0, dtype=np.float32)
     
     # 4. 旋转参数 (四元数 w, x, y, z)
     # 使用单位四元数 [1, 0, 0, 0] 表示无旋转
