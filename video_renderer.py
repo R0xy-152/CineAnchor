@@ -105,9 +105,14 @@ class VideoRenderer:
         os.makedirs(frame_dir, exist_ok=True)
 
         frame_paths = []
+        base_seed = 42
         for i, depth_path in enumerate(depth_map_paths):
             out_path = os.path.join(frame_dir, f"rgb_frame_{i:04d}.png")
-            controlnet.render_rgb(depth_path, prompt, out_path)
+            controlnet.render_rgb(
+                depth_path, prompt, out_path,
+                seed=base_seed + i,
+                controlnet_conditioning_scale=0.85,
+            )
             frame_paths.append(out_path)
 
         return frame_paths

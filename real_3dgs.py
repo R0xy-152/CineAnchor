@@ -173,14 +173,96 @@ class Real3DGS:
             Image.fromarray(np.zeros((self.height, self.width), dtype=np.uint8)).save(filepath)
             return filepath
 
+    def render_depth_maps_batch(self, scene_id: str,
+                                 camera_poses: list[dict]) -> list[str]:
+        """
+        批量渲染深度图，使用全局百分位归一化确保帧间深度一致性。
+
+        与逐帧 render_depth_map() 的关键区别：
+        - 收集所有帧的原始深度 → 计算统一的 1%-99% 百分位 min/max
+        - 所有帧用同一范围归一化 → 帧间不会出现深度漂移
+        - ControlNet 看到稳定一致的几何输入 → 减少帧间扭曲
+        """
+        if not camera_poses:
+            return []
+
+        print(f"\n[BatchRender] Rendering {len(camera_poses)} frames with "
+              f"GLOBAL depth normalization...")
+
+        # Phase 1: 渲染所有帧，收集原始深度数据
+        raw_depths = []
+        for i, pose in enumerate(camera_poses):
+            view_matrix = self._pose_to_view_matrix(pose)
+            K = torch.tensor([
+                [self.fx, 0, self.cx],
+                [0, self.fy, self.cy],
+                [0, 0, 1]
+            ], dtype=torch.float32, device=self.device)
+
+            outputs = rasterization(
+                means=self.means,
+                quats=self.quats,
+                scales=self.scales,
+                opacities=self.opacities,
+                colors=self.colors,
+                viewmats=view_matrix.unsqueeze(0),
+                Ks=K.unsqueeze(0),
+                width=self.width,
+                height=self.height,
+                near_plane=0.01,
+                far_plane=100.0,
+                render_mode="RGB+ED"
+            )
+            depth = outputs[1].squeeze().cpu().numpy()
+            raw_depths.append(depth)
+            print(f"  Frame {i}: raw depth [{depth.min():.3f}, {depth.max():.3f}] "
+                  f"mean={depth.mean():.3f}")
+
+        # Phase 2: 全局归一化 (1% / 99% 百分位裁剪飞点)
+        all_depths = np.concatenate([d.ravel() for d in raw_depths])
+        d_min = float(np.percentile(all_depths, 1))
+        d_max = float(np.percentile(all_depths, 99))
+        d_range = d_max - d_min
+        if d_range <= 0:
+            d_range = 1.0
+
+        print(f"  Global depth range: [{d_min:.3f}, {d_max:.3f}] "
+              f"(1-99 percentile)")
+
+        # Phase 3: 统一归一化并保存
+        paths = []
+        for i, depth in enumerate(raw_depths):
+            normalized = np.clip((depth - d_min) / d_range, 0, 1)
+            normalized = ((1 - normalized) * 255).astype(np.uint8)  # 反相: 近白远黑
+
+            filename = f"{scene_id}_real_depth_frame_{i:04d}.png"
+            filepath = os.path.join(self.output_dir, filename)
+            Image.fromarray(normalized).save(filepath)
+            paths.append(filepath)
+
+        print(f"  Saved {len(paths)} globally-normalized depth maps → "
+              f"{self.output_dir}/\n")
+        return paths
+
+
 if __name__ == "__main__":
-    # 简单测试代码
     renderer = Real3DGS("test_scene.ply")
-    # 相机在 z=5 处，180 度绕 Y 轴旋转使相机看向原点 (OpenCV 约定 +Z 为前方)
-    # 四元数 (0, 1, 0, 0) = 绕 Y 轴旋转 180 度
+
+    # 单帧测试
     test_pose = {
         "position": {"x": 0.0, "y": 0.0, "z": 5.0},
         "rotation": {"x": 0.0, "y": 1.0, "z": 0.0, "w": 0.0}
     }
-    
     renderer.render_depth_map("test_scene", test_pose, 0)
+
+    # 批量测试 (dolly-in 轨迹)
+    print("\n--- Batch Render Test ---")
+    poses = []
+    for i in range(8):
+        t = i / 7
+        z = 8.0 * (1 - t) + 2.0 * t
+        poses.append({
+            "position": {"x": 0.0, "y": 0.0, "z": z},
+            "rotation": {"x": 0.0, "y": 1.0, "z": 0.0, "w": 0.0}
+        })
+    renderer.render_depth_maps_batch("test_scene", poses)

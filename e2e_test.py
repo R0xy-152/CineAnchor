@@ -44,19 +44,16 @@ def main():
         print(f"ERROR: {ply_path} not found. Run: python generate_cube_splat.py")
         sys.exit(1)
 
-    # ---- Step 1: 深度图渲染 ----
-    print("\n[1/3] Rendering depth maps from 3DGS...")
+    # ---- Step 1: 深度图渲染 (全局归一化) ----
+    print("\n[1/3] Rendering depth maps with global normalization...")
     from real_3dgs import Real3DGS
     renderer = Real3DGS(ply_path)
 
     poses = generate_camera_trajectory(num_frames=8)
     print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=8 → z=2)")
 
-    depth_map_paths = []
-    for i, pose in enumerate(poses):
-        path = renderer.render_depth_map("test_scene", pose, i)
-        depth_map_paths.append(path)
-        print(f"  Frame {i}: z={pose['position']['z']:.1f} → {path}")
+    depth_map_paths = renderer.render_depth_maps_batch("test_scene", poses)
+    print(f"  Generated {len(depth_map_paths)} globally-normalized depth maps")
 
     # ---- Step 2: ControlNet 批量渲染 ----
     print("\n[2/3] Generating RGB frames via ControlNet-Depth...")
@@ -66,7 +63,8 @@ def main():
     prompt = "a colorful cube floating in dark space, studio lighting, high quality"
     frame_dir = "controlnet_output/e2e_frames"
     cn_renderer.render_batch(renderer.output_dir, prompt, frame_dir,
-                             num_inference_steps=20)
+                             num_inference_steps=20,
+                             controlnet_conditioning_scale=0.85)
 
     # ---- Step 3: ffmpeg 视频合成 ----
     print("\n[3/3] Stitching frames into video...")

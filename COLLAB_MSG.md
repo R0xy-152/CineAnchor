@@ -206,3 +206,31 @@ python e2e_test.py                      # 一键跑通全管线
 - 如果遇到问题 → 针对性修复
 
 ---
+
+### [2026-05-09 帧间扭曲修复]
+
+**mac 已完成修复（3 个文件）：**
+
+1. **real_3dgs.py** — 新增 `render_depth_maps_batch()`，使用全局 1%-99% 百分位归一化替代逐帧 min-max。所有帧共享同一深度区间 → ControlNet 输入不再漂移。
+
+2. **controlnet_renderer.py** — `render_rgb()` 新增 `controlnet_conditioning_scale` 参数（默认 0.85）。`render_batch()` 改用递增 seed（`seed + i`）替代统一 seed → 每帧有受控差异而非相同噪声。
+
+3. **video_renderer.py** — `_generate_controlnet_frames()` 透传 `controlnet_conditioning_scale=0.85` 和递增 seed。
+
+4. **e2e_test.py** — Step 1 改用 `render_depth_maps_batch()`
+
+---
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+然后检查：
+- 深度图序列：z=8（远端）的帧应该比 z=2（近端）亮度分布明显不同
+- RGB 帧序列：立方体不应再有扭曲/漂移
+- 输出视频：平滑的 dolly-in
+
+---

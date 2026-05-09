@@ -39,7 +39,8 @@ class ControlNetRenderer:
 
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
                    num_inference_steps: int = 20, guidance_scale: float = 7.5,
-                   seed: int = 42) -> str:
+                   seed: int = 42,
+                   controlnet_conditioning_scale: float = 0.85) -> str:
         """
         从深度图生成 RGB 图像。
 
@@ -50,6 +51,9 @@ class ControlNetRenderer:
             num_inference_steps: 推理步数
             guidance_scale: CFG scale
             seed: 随机种子
+            controlnet_conditioning_scale: ControlNet 对 UNet 的注入强度。
+                0.7-0.85 = 平衡几何约束与纹理自由度，推荐用于视频序列
+                1.0      = 严格跟随深度 (默认)，深度不一致时可能加剧扭曲
 
         Returns:
             输出文件路径
@@ -69,6 +73,7 @@ class ControlNetRenderer:
                 image=depth_image,
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
+                controlnet_conditioning_scale=controlnet_conditioning_scale,
                 generator=generator,
             )
 
@@ -79,16 +84,21 @@ class ControlNetRenderer:
         return output_path
 
     def render_batch(self, depth_dir: str, prompt: str, output_dir: str,
-                     num_inference_steps: int = 20, seed: int = 42) -> list[str]:
+                     num_inference_steps: int = 20, seed: int = 42,
+                     controlnet_conditioning_scale: float = 0.85) -> list[str]:
         """
         批量渲染：读取目录下所有深度图，逐帧生成 RGB 图像。
+
+        每帧 seed = base_seed + frame_index，确保帧间有受控的差异性，
+        而非所有帧用相同噪声模式（相同噪声 + 不同深度 = 不可预测的扭曲）。
 
         Args:
             depth_dir: 输入深度图目录
             prompt: Stable Diffusion prompt
             output_dir: 输出目录
             num_inference_steps: 推理步数
-            seed: 随机种子
+            seed: 基础随机种子（帧 i 使用 seed + i）
+            controlnet_conditioning_scale: ControlNet 注入强度 (0.85 推荐)
 
         Returns:
             输出文件路径列表
@@ -100,6 +110,8 @@ class ControlNetRenderer:
             raise FileNotFoundError(f"No PNG files found in {depth_dir}")
 
         print(f"Found {len(depth_files)} depth maps in {depth_dir}")
+        print(f"Seed strategy: {seed} + frame_index, "
+              f"conditioning_scale={controlnet_conditioning_scale}")
         os.makedirs(output_dir, exist_ok=True)
 
         output_paths = []
@@ -108,9 +120,12 @@ class ControlNetRenderer:
             output_name = f"rgb_frame_{i:04d}.png"
             output_path = os.path.join(output_dir, output_name)
 
-            print(f"[{i+1}/{len(depth_files)}] {filename} → {output_name}")
+            print(f"[{i+1}/{len(depth_files)}] {filename} → {output_name} "
+                  f"(seed={seed + i})")
             self.render_rgb(depth_path, prompt, output_path,
-                            num_inference_steps=num_inference_steps, seed=seed)
+                            num_inference_steps=num_inference_steps,
+                            seed=seed + i,
+                            controlnet_conditioning_scale=controlnet_conditioning_scale)
             output_paths.append(output_path)
 
         print(f"Batch render complete: {len(output_paths)} frames → {output_dir}")
