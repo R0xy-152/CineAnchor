@@ -727,3 +727,23 @@ python e2e_test.py
 - 显存峰值下降 (待确认具体数值，用户观察任务管理器中)
 
 ---
+
+### [2026-05-09 conditioning_scale 1.3→1.5 — mac]
+
+**目标：** 强化深度约束，在保持时序一致性的前提下提升立方体清晰度（ratio 从 1.17x 提高）。
+
+**改动：** e2e_test.py + video_renderer.py 中 controlnet_conditioning_scale 1.3 → 1.5
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+**验证点：**
+1. 立方体 ratio 是否从 ~1.17 提升
+2. 时序一致性 std 是否保持在 ~0.06
+3. 注意 1.5 是否导致过度拟合深度图（画面变僵硬/深度痕迹）
+
+---
