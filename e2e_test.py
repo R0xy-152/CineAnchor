@@ -13,19 +13,20 @@ CineAnchor 端到端测试
 
 import os
 import sys
+import shutil
 import numpy as np
 
 
-def generate_camera_trajectory(num_frames: int = 8):
+def generate_camera_trajectory(num_frames: int = 6):
     """
-    生成 dolly-in 推近轨迹：相机从 z=7 匀速推进到 z=3.5。
-    范围限制避免相机贴脸时高斯面片饱和整个像平面。
-    所有相机朝向原点 (0,0,0)，使用 OpenCV 约定 (Z-forward)。
+    生成 dolly-in 推近轨迹：相机从 z=7 匀速推进到 z=4.5。
+    所有相机朝向原点 (0,0,0)。z≥4.5 确保高斯面片不饱和像平面，
+    ControlNet 有足够几何信息识别立方体结构。
     """
     poses = []
     for i in range(num_frames):
         t = i / max(num_frames - 1, 1)
-        z = 7.0 * (1 - t) + 3.5 * t  # 8 → 2
+        z = 7.0 * (1 - t) + 4.5 * t  # 8 → 2
         # 四元数 (0, 1, 0, 0) = 绕 Y 轴 180°，让相机从 +Z 看向原点
         poses.append({
             "position": {"x": 0.0, "y": 0.0, "z": z},
@@ -39,6 +40,12 @@ def main():
     print("  CineAnchor — End-to-End Pipeline Test")
     print("=" * 60)
 
+    # ---- Step 0: 清理旧输出 ----
+    for d in ["real_depth_maps", "controlnet_output", "videos"]:
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+            print(f"  Cleaned: {d}/")
+
     # ---- Step 0: 检查 PLY ----
     ply_path = "test_scene.ply"
     if not os.path.exists(ply_path):
@@ -51,7 +58,7 @@ def main():
     renderer = Real3DGS(ply_path)
 
     poses = generate_camera_trajectory(num_frames=8)
-    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=7 → z=3.5)")
+    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=7 → z=4.5)")
 
     depth_map_paths = renderer.render_depth_maps_batch("test_scene", poses)
     print(f"  Generated {len(depth_map_paths)} globally-normalized depth maps")
