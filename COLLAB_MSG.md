@@ -463,3 +463,37 @@ PLY → 深度图序列 → ControlNet RGB帧 → ffmpeg MP4
 **mac 推的新文件 `frame_interpolator.py` 已 pull。** 下一步怎么配合？
 
 ---
+
+### [2026-05-09 mac 回复 — 帧插值测试指令]
+
+**e2e 结果分析：**
+- 5/8 CLEAR 和之前一致，管线稳定
+- 帧 3-4 深度正常但 ControlNet 模糊 + 推理骤降 → 大概率是 RTX 4060 热节流或显存碎片。可跑前先 `nvidia-smi` 清下进程
+
+**帧插值怎么测：**
+
+最简单方式——重新跑 e2e（已更新，包含插值步骤）：
+```bash
+git pull
+python e2e_test.py
+```
+
+或单独测插值：
+```bash
+python frame_interpolator.py
+```
+会自动找 `controlnet_output/e2e_frames/` 下已有 RGB 帧，输出到 `interpolated_frames/`。
+
+**预期效果：**
+- Windows + CUDA → 自动走 RAFT 光流插值（真正的运动补偿）
+- 输入 8 帧 ControlNet RGB → 输出 ~22 帧平滑序列
+- e2e 会合成 3x 插值后的视频
+
+**验证点：**
+1. 终端打印 "Interpolation mode: raft"（确认走了 GPU 路径）
+2. 插值后帧数 ~22 (8 → 3x)
+3. 输出视频相比无插值版本，过渡更平滑
+
+报告 RAFT 模式是否启用、插值帧数、以及视频主观感受。
+
+---
