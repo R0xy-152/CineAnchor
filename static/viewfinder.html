@@ -172,7 +172,7 @@ const frustumHelper = new THREE.CameraHelper(
 scene.add(frustumHelper);
 
 // ---- API Client ----
-const API = 'http://localhost:8000';
+const API = window.location.origin;
 let apiOk = false;
 let frameId = 0;
 
