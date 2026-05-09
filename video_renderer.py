@@ -110,7 +110,7 @@ class VideoRenderer:
                 return controlnet.render_animated(
                     depth_map_paths, prompt, frame_dir,
                     num_inference_steps=25, seed=42,
-                    controlnet_conditioning_scale=1.7,
+                    controlnet_conditioning_scale=2.0,
                 )
         except Exception as e:
             print(f"[VideoRenderer] AnimateDiff unavailable ({e}), "

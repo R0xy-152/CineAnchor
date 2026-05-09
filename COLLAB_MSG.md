@@ -908,6 +908,19 @@ python e2e_test.py
 - 立方体信号 7/8 帧 positive（中心比边缘亮）
 - ratio 1.21 低于逐帧 7/8 CLEAR 的水平，但这是 AnimateDiff 平滑渲染的固有特征
 
-**里程碑达成**：AnimateDiff + 纹理立方体 + scale=1.7 管线完整跑通，时序一致性 + 立方体信号首次同框。ratio 降低是时序平滑的合理代价——画面无抖动，帧间过渡自然。
+**里程碑达成**：AnimateDiff + 纹理立方体 + scale=1.7 管线完整跑通。
+
+### [2026-05-10 scale 1.7→2.0 — mac]
+
+**目标：** 在时序一致性不崩的前提下推高 ratio。
+
+## 🔴 验证 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+关键看：ratio 是否从 1.21 提升，std 是否保持 ~0.05。
 
 ---

@@ -88,7 +88,7 @@ def main():
         cn_renderer.render_animated(
             depth_paths, prompt, frame_dir,
             num_inference_steps=25, seed=42,
-            controlnet_conditioning_scale=1.7,
+            controlnet_conditioning_scale=2.0,
         )
     except Exception as e:
         print(f"  AnimateDiff not available ({e}), falling back to per-frame")
