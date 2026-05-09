@@ -645,3 +645,21 @@ python e2e_test.py
 等 mac 的 AnimateDiff 合并后应该能进一步稳定帧间质量。
 
 ---
+
+### [2026-05-09 AnimateDiff 首次测试 — 小win]
+
+**Bug 修复：** `control_images` → `conditioning_frames` (AnimateDiffControlNetPipeline API 参数名)
+
+**AnimateDiff 跑通：**
+- 8 帧一次扩散过程生成，25 steps ~61s
+- 时序一致性**在工作** — 所有帧 ratio 高度一致 (1.1-1.24x，标准差极小)
+- 但**立方体消失了** — 中心比角落暗，无彩色方块特征
+- RAFT 插值正常 8→22 帧
+
+**根因分析：** motion adapter 的时间平滑压过了 ControlNet 深度约束。
+
+**建议修复：**
+- 提高 `controlnet_conditioning_scale` 到 1.3-1.5
+- 配合纹理立方体测试
+
+---
