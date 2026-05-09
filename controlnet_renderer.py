@@ -221,7 +221,7 @@ class ControlNetRenderer:
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 controlnet_conditioning_scale=controlnet_conditioning_scale,
-                control_images=depth_images,
+                conditioning_frames=depth_images,
                 num_frames=len(depth_images),
                 width=512,
                 height=512,
