@@ -395,3 +395,30 @@ PLY → 深度图序列 → ControlNet RGB帧 → ffmpeg MP4
 | 🟢 P2 | 多分辨率 | 高于 512x512 的输出 | 待定 |
 
 ---
+
+## 🔴 并行任务 #6 — Windows/NVIDIA (小win)
+
+**任务：搭建更丰富的 3DGS 场景**
+
+当前立方体太小（2x2x2），dolly-in 时深度图容易饱和。需要更好的场景来展示管线能力。
+
+**方案：修改 `generate_cube_splat.py` 支持多场景**
+
+1. 添加 `create_large_cube_splat()` — 6x6x6 大立方体，30000 表面点，scale=-2.5
+2. 添加 `create_multi_object_splat()` — 3-5 个不同大小/位置的立方体/球体，分散在 [-4,4]³ 空间
+3. 每种场景生成独立 PLY 文件（`scene_large_cube.ply`, `scene_multi.ply`）
+4. 为每个场景渲染一组深度图并跑 ControlNet 看看效果
+5. 把效果最好的那个场景的 PLY 推上来
+
+**不改其他文件，只在 generate_cube_splat.py 里加函数。**
+
+---
+
+## 🟢 并行任务 #7 — macOS (mac 执行中)
+
+**任务：前端取景器 + API 完善**
+
+- `static/viewfinder.html` — Three.js 3D 相机控制器
+- `main.py` — CORS + 静态文件服务
+
+---
