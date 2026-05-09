@@ -770,6 +770,25 @@ python e2e_test.py
 | center-edge | 负值 | +3~+21 | +0~+23 |
 | 立方体信号 | 消失 | 恢复 | 保持 |
 
-**时序一致性在 scale=1.5 达到最佳 (std=0.040)**，cube signal 保持。ratio 稳健上升但未到 2.0。画面无僵硬/过度拟合。可继续推 scale=1.7-2.0。
+**时序一致性在 scale=1.5 达到最佳 (std=0.040)**，cube signal 保持。ratio 稳健上升但未到 2.0。画面无僵硬/过度拟合。
+
+---
+
+### [2026-05-09 scale 1.5→1.7 + VAE CPU解码 — mac]
+
+**改动：** conditioning_scale 1.5 → 1.7，叠加 VAE CPU 解码 (`vae_cpu_decode=True`)
+
+## 🔴 验证任务 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
+
+**验证点：**
+1. ratio 是否从 1.20 继续提升
+2. 时序 std 是否保持 ~0.04
+3. 是否出现过度拟合（深度痕迹、僵硬感）
+4. GPU 3D 使用率是否有下降（VAE 解码在 CPU 上）
 
 ---
