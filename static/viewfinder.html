@@ -221,8 +221,12 @@ function updateHUD() {
 
 // Update frustum helper to follow the camera
 function updateFrustum() {
-  frustumHelper.camera.position.copy(camera.position);
-  frustumHelper.camera.quaternion.copy(camera.quaternion);
+  const fc = frustumHelper.camera;
+  fc.position.copy(camera.position);
+  fc.quaternion.copy(camera.quaternion);
+  fc.aspect = camera.aspect;
+  fc.updateProjectionMatrix();
+  fc.updateMatrixWorld();
   frustumHelper.update();
 }
 
