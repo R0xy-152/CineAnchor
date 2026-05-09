@@ -835,3 +835,19 @@ python e2e_test.py
 3. 叠加 AnimateDiff + 纹理立方体 + scale=1.7 的最终效果
 
 ---
+
+### [2026-05-09 VAE CPU fix v2 测试 — 小win]
+
+**meta tensor bug 已修，但新 bug：** `Input type (c10::Half) and bias type (float) should be the same` — latent 是 fp16，独立 CPU VAE 是 fp32，类型不匹配。AnimateDiff 仍降级为逐帧。
+
+**逐帧渲染 (fallback)：7/8 CLEAR — 稳定复现**
+
+| 帧 | ratio | 判定 |
+|---|---|---|
+| 0-2 | 2.42~3.92 | CLEAR |
+| 3 | 1.49 | BLUR |
+| 4-7 | 2.38~4.68 | CLEAR |
+
+逐帧模式在 scale=1.7 + 纹理立方体下 7/8 CLEAR 已确认稳定。VAE CPU decode 需修 fp16/fp32 类型匹配——latent 应先 `.float()` 再送入 CPU VAE。
+
+---
