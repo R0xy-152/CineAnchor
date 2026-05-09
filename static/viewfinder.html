@@ -219,10 +219,11 @@ function updateHUD() {
     `${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.z.toFixed(3)}, ${q.w.toFixed(3)}`;
 }
 
-// Update frustum helper position
+// Update frustum helper to follow the camera
 function updateFrustum() {
-  frustumHelper.position.copy(camera.position);
-  frustumHelper.quaternion.copy(camera.quaternion);
+  frustumHelper.camera.position.copy(camera.position);
+  frustumHelper.camera.quaternion.copy(camera.quaternion);
+  frustumHelper.update();
 }
 
 // ---- Recording ----
