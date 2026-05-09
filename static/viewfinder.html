@@ -52,6 +52,18 @@
     color: #555; font-size: 11px; text-align: right; z-index: 10;
     line-height: 1.6;
   }
+
+  .btn-mode {
+    display: inline-block; width: 32%; padding: 6px 0; border-radius: 5px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04); color: #888; font-size: 11px; cursor: pointer; text-align: center;
+    transition: all 0.15s;
+  }
+  .btn-mode.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+  .btn-mode:hover:not(.active) { background: rgba(255,255,255,0.08); color: #ccc; }
+
+  #gamepad-status { font-size: 11px; margin-top: 4px; }
+  #gamepad-status .connected { color: #4ade80; }
+  #gamepad-status .disconnected { color: #666; }
 </style>
 </head>
 <body>
@@ -72,6 +84,13 @@
   <label>FPS</label>
   <input id="fps" type="number" value="8" min="1" max="60">
 
+  <label>相机模式</label>
+  <div style="display:flex;gap:4px">
+    <button class="btn-mode active" id="btn-orbit" onclick="setMode('orbit')">Orbit</button>
+    <button class="btn-mode" id="btn-drone" onclick="setMode('drone')">Drone</button>
+    <button class="btn-mode" id="btn-fps" onclick="setMode('fps')">FPS</button>
+  </div>
+
   <div id="frame-count">0</div>
   <div style="text-align:center;color:#666;font-size:11px;margin-top:-4px">已录制帧</div>
 
@@ -85,13 +104,17 @@
 </div>
 
 <div id="pose-hud">
+  <div style="color:#fff;font-weight:600;margin-bottom:2px">
+    <span id="hud-mode">Orbit</span>
+    <span id="gamepad-status" style="float:right"><span class="disconnected">no pad</span></span>
+  </div>
   pos: <span id="hud-pos">--</span><br>
   rot: <span id="hud-quat">--</span>
 </div>
 
 <div id="instructions">
-  拖拽旋转 | 滚轮缩放 | 右键平移<br>
-  Space 录制单帧 | R 开始/停止连续录制
+  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>Space/R 录制</span>
+  <span id="instr-fly" style="display:none">WASD 移动 | Q/E 升降 | 方向键 看<br>RT 加速 | Space/R 录制</span>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -334,6 +357,219 @@ window.renderVideo = async function() {
   }
 };
 
+// ---- Camera Mode System ----
+let camMode = 'orbit'; // orbit | drone | fps
+const DEADZONE = 0.15;
+const FLY_SPEED = 4.0;  // units/sec
+const TURN_SPEED = 2.5; // rad/sec
+const DRONE_THRUST = 3.0;
+
+window.setMode = function(mode) {
+  camMode = mode;
+  document.getElementById('btn-orbit').classList.toggle('active', mode === 'orbit');
+  document.getElementById('btn-drone').classList.toggle('active', mode === 'drone');
+  document.getElementById('btn-fps').classList.toggle('active', mode === 'fps');
+  document.getElementById('hud-mode').textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+  document.getElementById('instr-orbit').style.display = mode === 'orbit' ? '' : 'none';
+  document.getElementById('instr-fly').style.display = mode !== 'orbit' ? '' : 'none';
+  controls.enabled = mode === 'orbit';
+  if (mode !== 'orbit') controls.target.copy(camera.position).add(
+    new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+  );
+};
+
+// ---- Gamepad ----
+let gamepadConnected = false;
+let lastGamepadButtons = {};
+
+function pollGamepad() {
+  const pads = navigator.getGamepads();
+  let active = null;
+  for (const p of pads) { if (p) { active = p; break; } }
+  if (!active) {
+    if (gamepadConnected) {
+      gamepadConnected = false;
+      document.getElementById('gamepad-status').innerHTML = '<span class="disconnected">no pad</span>';
+    }
+    return null;
+  }
+  if (!gamepadConnected) {
+    gamepadConnected = true;
+    document.getElementById('gamepad-status').innerHTML = '<span class="connected">pad ok</span>';
+  }
+  return active;
+}
+
+function axisVal(gp, idx) {
+  const v = gp.axes[idx] || 0;
+  return Math.abs(v) < DEADZONE ? 0 : v;
+}
+
+function btnJustPressed(gp, idx) {
+  const pressed = gp.buttons[idx] && gp.buttons[idx].pressed;
+  const was = lastGamepadButtons[idx] || false;
+  lastGamepadButtons[idx] = pressed;
+  return pressed && !was;
+}
+
+function handleGamepadInput(gp, dt) {
+  if (!gp) return;
+  const speed = FLY_SPEED * dt;
+  const turn = TURN_SPEED * dt;
+
+  // Shared: Select button to cycle modes
+  if (btnJustPressed(gp, 8)) {
+    const modes = ['orbit', 'drone', 'fps'];
+    const next = modes[(modes.indexOf(camMode) + 1) % 3];
+    setMode(next);
+  }
+
+  if (camMode === 'drone') {
+    // Mode 2: Left stick = throttle+yaw, Right stick = pitch+roll
+    const throttle = -axisVal(gp, 1); // left Y: up is negative
+    const yaw = axisVal(gp, 0);
+    const pitch = -axisVal(gp, 3); // right Y: up is negative
+    const roll = axisVal(gp, 2);
+
+    camera.position.y += throttle * DRONE_THRUST * dt;
+
+    // Yaw around world Y
+    if (Math.abs(yaw) > 0) {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -yaw * turn);
+    }
+    // Pitch around local X
+    if (Math.abs(pitch) > 0) {
+      camera.rotateX(pitch * turn);
+    }
+    // Roll around local Z
+    if (Math.abs(roll) > 0) {
+      camera.rotateZ(-roll * turn);
+    }
+
+    // RT (index 7) = thrust forward
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (rt > 0.1) {
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      camera.position.addScaledVector(fwd, rt * speed * 2);
+    }
+  }
+
+  if (camMode === 'fps') {
+    // Left stick = move, Right stick = look
+    const lx = axisVal(gp, 0);
+    const ly = -axisVal(gp, 1);
+    const rx = axisVal(gp, 2);
+    const ry = -axisVal(gp, 3);
+
+    // Yaw + pitch via right stick
+    if (Math.abs(rx) > 0 || Math.abs(ry) > 0) {
+      camera.rotateY(-rx * turn);
+      camera.rotateX(ry * turn);
+    }
+
+    // Move via left stick
+    if (Math.abs(lx) > 0 || Math.abs(ly) > 0) {
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      fwd.y = 0; fwd.normalize();
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      right.y = 0; right.normalize();
+      camera.position.addScaledVector(fwd, ly * speed);
+      camera.position.addScaledVector(right, lx * speed);
+    }
+
+    // LT/LT for up/down
+    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (lt > 0.1) camera.position.y -= lt * DRONE_THRUST * dt;
+    if (rt > 0.1) camera.position.y += rt * DRONE_THRUST * dt;
+  }
+
+  // Recording buttons (shared across modes)
+  if (camMode !== 'orbit') {
+    if (btnJustPressed(gp, 0)) captureFrame();           // A button
+    if (btnJustPressed(gp, 1)) toggleRecord();           // B button
+  }
+}
+
+// ---- Keyboard ----
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  keys[e.code] = true;
+
+  // Shared controls
+  if (e.code === 'Space') {
+    e.preventDefault();
+    recording ? captureFrame() : toggleRecord();
+  }
+  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    toggleRecord();
+  }
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    const modes = ['orbit', 'drone', 'fps'];
+    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
+  }
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+function handleKeyboardFly(dt) {
+  if (camMode === 'orbit') return;
+  const speed = FLY_SPEED * dt;
+  const turn = TURN_SPEED * dt;
+
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+  // Movement
+  if (keys['KeyW']) {
+    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); }
+    camera.position.addScaledVector(fwd, speed);
+  }
+  if (keys['KeyS']) {
+    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); }
+    camera.position.addScaledVector(fwd, -speed);
+  }
+  if (keys['KeyA']) {
+    if (camMode === 'drone') {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), turn * 1.5);
+    } else {
+      right.y = 0; right.normalize();
+      camera.position.addScaledVector(right, -speed);
+    }
+  }
+  if (keys['KeyD']) {
+    if (camMode === 'drone') {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -turn * 1.5);
+    } else {
+      right.y = 0; right.normalize();
+      camera.position.addScaledVector(right, speed);
+    }
+  }
+  if (keys['KeyQ']) camera.position.y -= speed;
+  if (keys['KeyE']) camera.position.y += speed;
+
+  // Arrow keys for looking
+  if (camMode === 'drone') {
+    if (keys['ArrowUp']) camera.rotateX(turn);
+    if (keys['ArrowDown']) camera.rotateX(-turn);
+    if (keys['ArrowLeft']) camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), turn);
+    if (keys['ArrowRight']) camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -turn);
+  } else {
+    if (keys['ArrowUp']) camera.rotateX(turn);
+    if (keys['ArrowDown']) camera.rotateX(-turn);
+    if (keys['ArrowLeft']) camera.rotateY(turn);
+    if (keys['ArrowRight']) camera.rotateY(-turn);
+  }
+
+  // Shift to boost
+  if (keys['ShiftLeft'] || keys['ShiftRight']) {
+    const boost = 3.0 * dt;
+    camera.position.addScaledVector(fwd, boost);
+  }
+}
+
 // ---- Clear ----
 window.clearFrames = async function() {
   const sceneId = document.getElementById('scene-select').value;
@@ -343,27 +579,21 @@ window.clearFrames = async function() {
   document.getElementById('frame-count').textContent = '0';
 };
 
-// ---- Keyboard ----
-window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  if (e.code === 'Space') {
-    e.preventDefault();
-    if (recording) {
-      captureFrame();
-    } else {
-      toggleRecord();
-    }
-  }
-  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
-    e.preventDefault();
-    toggleRecord();
-  }
-});
-
 // ---- Render Loop ----
+const clock = new THREE.Clock();
+
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  const dt = Math.min(clock.getDelta(), 0.1); // cap to avoid jumps
+
+  if (camMode === 'orbit') {
+    controls.update();
+  } else {
+    const gp = pollGamepad();
+    handleGamepadInput(gp, dt);
+    handleKeyboardFly(dt);
+  }
+
   updateHUD();
   updateFrustum();
   renderer.render(scene, camera);
