@@ -171,21 +171,96 @@ scene.add(new THREE.GridHelper(10, 20, 0x333355, 0x222244));
 const axes = new THREE.AxesHelper(3);
 scene.add(axes);
 
-// Scene proxy cube (matches 3DGS test_scene: 2x2x2 at origin)
-const cubeGeo = new THREE.BoxGeometry(2, 2, 2);
-const cubeMat = new THREE.MeshStandardMaterial({
-  color: 0x6366f1, roughness: 0.3, metalness: 0.1, wireframe: false,
-  transparent: true, opacity: 0.5
-});
-const cube = new THREE.Mesh(cubeGeo, cubeMat);
-scene.add(cube);
+// Scene proxy group (动态切换场景代理模型)
+const proxyGroup = new THREE.Group();
+scene.add(proxyGroup);
 
-// Wireframe overlay for better depth perception
-const wire = new THREE.Mesh(
-  new THREE.BoxGeometry(2, 2, 2),
-  new THREE.MeshBasicMaterial({ color: 0x818cf8, wireframe: true, transparent: true, opacity: 0.3 })
-);
-scene.add(wire);
+function clearProxy() {
+  while (proxyGroup.children.length > 0) {
+    const child = proxyGroup.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+    proxyGroup.remove(child);
+  }
+}
+
+function addBox(center, halfSize, color, opacity) {
+  const geo = new THREE.BoxGeometry(halfSize[0]*2, halfSize[1]*2, halfSize[2]*2);
+  const mat = new THREE.MeshStandardMaterial({
+    color, roughness: 0.3, metalness: 0.1, transparent: true, opacity
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(center[0], center[1], center[2]);
+  proxyGroup.add(mesh);
+  // wireframe overlay
+  const wireGeo = new THREE.BoxGeometry(halfSize[0]*2, halfSize[1]*2, halfSize[2]*2);
+  const wireMat = new THREE.MeshBasicMaterial({
+    color, wireframe: true, transparent: true, opacity: opacity * 0.6
+  });
+  const wire = new THREE.Mesh(wireGeo, wireMat);
+  wire.position.copy(mesh.position);
+  proxyGroup.add(wire);
+}
+
+function addSphere(center, radius, color, opacity) {
+  const geo = new THREE.SphereGeometry(radius, 32, 16);
+  const mat = new THREE.MeshStandardMaterial({
+    color, roughness: 0.3, metalness: 0.1, transparent: true, opacity
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(center[0], center[1], center[2]);
+  proxyGroup.add(mesh);
+  const wireGeo = new THREE.SphereGeometry(radius, 24, 12);
+  const wireMat = new THREE.MeshBasicMaterial({
+    color, wireframe: true, transparent: true, opacity: opacity * 0.6
+  });
+  const wire = new THREE.Mesh(wireGeo, wireMat);
+  wire.position.copy(mesh.position);
+  proxyGroup.add(wire);
+}
+
+function buildSceneProxy(sceneId) {
+  clearProxy();
+  if (sceneId === 'test_scene') {
+    addBox([0, 0, 0], [1, 1, 1], 0x6366f1, 0.5);
+  } else if (sceneId === 'office_scene') {
+    // 地板
+    addBox([0, -0.5, 0], [3, 0.05, 4], 0x334455, 0.4);
+    // 桌子
+    addBox([0, 0.0, 0], [1, 0.8, 2], 0x8B7355, 0.5);
+    // 桌上球体
+    addSphere([0, 0.5, 0], 0.4, 0x44aaff, 0.5);
+    // 椅子
+    addBox([2, -0.3, -0.5], [0.3, 0.5, 0.3], 0x666666, 0.5);
+    // 窗户
+    addBox([-1.5, 0.3, -2], [0.5, 0.8, 0.1], 0x88ccff, 0.4);
+  } else if (sceneId === 'forest_path') {
+    // 地面
+    addBox([0, -0.5, 0], [4, 0.05, 6], 0x2d5a1e, 0.4);
+    // 近处树
+    addBox([-2, 0.5, 2], [0.3, 2, 0.3], 0x5a3a1e, 0.5);
+    addBox([2, 0.5, 2], [0.3, 2, 0.3], 0x5a3a1e, 0.5);
+    addBox([-2.5, 0.5, -2], [0.3, 2, 0.3], 0x5a3a1e, 0.5);
+    addBox([2.5, 0.5, -2], [0.3, 2, 0.3], 0x5a3a1e, 0.5);
+    // 远处树
+    addBox([-3, 0.75, 5], [0.35, 2.5, 0.35], 0x4a2a0e, 0.4);
+    addBox([3, 0.75, 5], [0.35, 2.5, 0.35], 0x4a2a0e, 0.4);
+  }
+}
+
+// 监听场景切换
+document.getElementById('scene-select').addEventListener('change', (e) => {
+  buildSceneProxy(e.target.value);
+});
+
+// 初始加载
+buildSceneProxy('test_scene');
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x404060, 2));
