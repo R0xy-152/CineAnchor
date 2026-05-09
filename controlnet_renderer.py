@@ -78,12 +78,60 @@ class ControlNetRenderer:
 
         return output_path
 
+    def render_batch(self, depth_dir: str, prompt: str, output_dir: str,
+                     num_inference_steps: int = 20, seed: int = 42) -> list[str]:
+        """
+        批量渲染：读取目录下所有深度图，逐帧生成 RGB 图像。
+
+        Args:
+            depth_dir: 输入深度图目录
+            prompt: Stable Diffusion prompt
+            output_dir: 输出目录
+            num_inference_steps: 推理步数
+            seed: 随机种子
+
+        Returns:
+            输出文件路径列表
+        """
+        depth_files = sorted(
+            f for f in os.listdir(depth_dir) if f.endswith('.png')
+        )
+        if not depth_files:
+            raise FileNotFoundError(f"No PNG files found in {depth_dir}")
+
+        print(f"Found {len(depth_files)} depth maps in {depth_dir}")
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_paths = []
+        for i, filename in enumerate(depth_files):
+            depth_path = os.path.join(depth_dir, filename)
+            output_name = f"rgb_frame_{i:04d}.png"
+            output_path = os.path.join(output_dir, output_name)
+
+            print(f"[{i+1}/{len(depth_files)}] {filename} → {output_name}")
+            self.render_rgb(depth_path, prompt, output_path,
+                            num_inference_steps=num_inference_steps, seed=seed)
+            output_paths.append(output_path)
+
+        print(f"Batch render complete: {len(output_paths)} frames → {output_dir}")
+        return output_paths
+
 
 if __name__ == "__main__":
     renderer = ControlNetRenderer()
 
-    input_depth = "real_depth_maps/test_scene_real_depth_frame_0000.png"
-    output_rgb = "controlnet_output/test_scene_rgb_0000.png"
     prompt = "a colorful cube floating in dark space, studio lighting, high quality"
 
-    renderer.render_rgb(input_depth, prompt, output_rgb)
+    # 单帧测试
+    renderer.render_rgb(
+        "real_depth_maps/test_scene_real_depth_frame_0000.png",
+        prompt,
+        "controlnet_output/test_scene_rgb_0000.png",
+    )
+
+    # 批量渲染
+    renderer.render_batch(
+        "real_depth_maps/",
+        prompt,
+        "controlnet_output/frames/",
+    )
