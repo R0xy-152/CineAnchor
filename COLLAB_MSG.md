@@ -1064,3 +1064,9 @@ python e2e_test.py               # AnimateDiff + 边缘增强 + 新 prompt
 **验证点：** ratio 能否从 1.21 突破，边缘增强是否引入伪影。
 
 ---
+
+### [2026-05-10 纹理立方体+边缘增强 — 小win]
+
+ratio 1.21→1.09, std 0.049→0.087。边缘增强+Prompt 反效果。baseline 仍是最佳。
+
+---
