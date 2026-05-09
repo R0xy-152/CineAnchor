@@ -264,6 +264,51 @@ def create_textured_cube_splat(output_path="scene_textured_cube.ply",
     _write_ply(xyz, scale_log=-2.0, opacity_log=15.0, output_path=output_path)
 
 
+def create_complex_scene(output_path="scene_complex.ply", num_points=30000):
+    """多物体纹理场景: 5 个不同尺寸/纹理的立方体，分散在 [-5,5]^3。"""
+    print(f"Generating COMPLEX scene with {num_points} points...")
+
+    objects = [
+        # (center_x, center_y, center_z, half_size, points, perturb, freq)
+        (0.0, 0.0, 0.0,   1.2, 8000,  0.06, 5),   # 中心立方体
+        (2.0, 1.0, -1.0,  0.7, 6000,  0.04, 3),   # 右前小立方体
+        (-1.8, -0.8, 1.5, 0.6, 6000,  0.05, 6),   # 左后小立方体
+        (1.2, -1.5, 1.8,  0.5, 5000,  0.07, 4),   # 下方小立方体
+        (-1.5, 1.2, -1.5, 0.9, 5000,  0.03, 2),   # 左上扁长方体
+    ]
+
+    parts = []
+    for cx, cy, cz, half, count, perturb, freq in objects:
+        per_face = count // 6
+        rem = count % 6
+        for fi in range(6):
+            n = per_face + (1 if fi < rem else 0)
+            u = np.random.rand(n) * 2 - 1
+            v = np.random.rand(n) * 2 - 1
+            wave = perturb * np.sin(freq * np.pi * u) * np.cos(freq * np.pi * v)
+            ones_u = u * half
+            ones_v = v * half
+            ones_h = np.ones(n) * half
+            if fi == 0:
+                pts = np.column_stack([ones_u + cx, ones_v + cy, ones_h + wave + cz])
+            elif fi == 1:
+                pts = np.column_stack([ones_u + cx, ones_v + cy, -ones_h + wave + cz])
+            elif fi == 2:
+                pts = np.column_stack([ones_h + wave + cx, ones_u + cy, ones_v + cz])
+            elif fi == 3:
+                pts = np.column_stack([-ones_h + wave + cx, ones_u + cy, ones_v + cz])
+            elif fi == 4:
+                pts = np.column_stack([ones_u + cx, ones_h + wave + cy, ones_v + cz])
+            else:
+                pts = np.column_stack([ones_u + cx, -ones_h + wave + cy, ones_v + cz])
+            parts.append(pts)
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)
+    np.random.shuffle(xyz)
+
+    _write_ply(xyz, scale_log=-2.2, opacity_log=14.0, output_path=output_path)
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  Generating all CineAnchor scene PLYs")
@@ -272,4 +317,5 @@ if __name__ == "__main__":
     create_large_cube_splat("scene_large_cube.ply", num_points=30000)
     create_multi_object_splat("scene_multi.ply", num_points=30000)
     create_textured_cube_splat("scene_textured_cube.ply", num_points=20000)
-    print("\nDone. 4 PLY files generated.")
+    create_complex_scene("scene_complex.ply", num_points=30000)
+    print("\nDone. 5 PLY files generated.")
