@@ -122,7 +122,7 @@
 
 <div id="instructions">
   <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 录制 | Space 升高</span>
-  <span id="instr-fly" style="display:none">WASD 移动 | Q/E 升降 | 方向键 看<br>RT 加速 | R 录制 | Space 升高</span>
+  <span id="instr-fly" style="display:none">WASD 移动 | Space/Ctrl 升降 | 鼠标转视角<br>R 录制 | 点击画布锁定鼠标</span>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -578,7 +578,7 @@ function readKeyboardTarget(targetMove, targetLook) {
   if (keys['KeyS']) targetMove.z = -spd;
   if (keys['KeyA']) camMode === 'drone' ? (targetLook.x = lspd * 1.5) : (targetMove.x = -spd);
   if (keys['KeyD']) camMode === 'drone' ? (targetLook.x = -lspd * 1.5) : (targetMove.x = spd);
-  if (keys['KeyQ']) targetMove.y = -THRUST_SPEED;
+  if (keys['ControlLeft'] || keys['ControlRight']) targetMove.y = -THRUST_SPEED;
   if (keys['KeyE'] || keys['Space']) targetMove.y = THRUST_SPEED;
 
   if (camMode === 'drone') {
@@ -639,6 +639,26 @@ function btnJustPressed(gp, idx) {
   lastGamepadButtons[idx] = pressed;
   return pressed && !was;
 }
+
+// ---- Mouse Look (FPS/Drone 模式指针锁定) ----
+const MOUSE_SENSITIVITY = 0.002;
+let pointerLocked = false;
+
+canvas.addEventListener('click', () => {
+  if (camMode !== 'orbit' && !pointerLocked) {
+    canvas.requestPointerLock();
+  }
+});
+
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!pointerLocked || camMode === 'orbit') return;
+  velLook.x += e.movementX * MOUSE_SENSITIVITY * LOOK_SPEED * 30;
+  velLook.y += e.movementY * MOUSE_SENSITIVITY * LOOK_SPEED * 30;
+});
 
 // ---- Clear ----
 window.clearFrames = async function() {
