@@ -359,10 +359,11 @@ window.renderVideo = async function() {
 
 // ---- Camera Mode System ----
 let camMode = 'orbit'; // orbit | drone | fps
-const DEADZONE = 0.15;
-const FLY_SPEED = 4.0;  // units/sec
-const TURN_SPEED = 2.5; // rad/sec
-const DRONE_THRUST = 3.0;
+const DEADZONE = 0.12;
+const MOVE_SPEED = 3.0;   // units/sec (位移)
+const LOOK_SPEED = 1.2;   // rad/sec  (旋转，比位移更慢以精确构图)
+const THRUST_SPEED = 2.0;  // units/sec (升降)
+const STICK_POWER = 2.2;   // 响应曲线指数 (>1 = 中心区更精细)
 
 window.setMode = function(mode) {
   camMode = mode;
@@ -400,10 +401,19 @@ function pollGamepad() {
   return active;
 }
 
-function axisVal(gp, idx) {
-  const v = gp.axes[idx] || 0;
-  return Math.abs(v) < DEADZONE ? 0 : v;
+function stickVal(gp, idx) {
+  const raw = gp.axes[idx] || 0;
+  const abs = Math.abs(raw);
+  if (abs < DEADZONE) return 0;
+  // 将 [deadzone, 1] 重映射到 [0, 1] 再做幂次曲线
+  const normalized = (abs - DEADZONE) / (1 - DEADZONE);
+  const curved = Math.pow(normalized, STICK_POWER);
+  return Math.sign(raw) * curved;
 }
+
+// 旋转平滑: 指数移动平均消除手柄抖动
+const smoothLook = { x: 0, y: 0 };
+const SMOOTH = 0.12; // 越小越平滑但延迟越大 (0.12 = 电影级阻尼)
 
 function btnJustPressed(gp, idx) {
   const pressed = gp.buttons[idx] && gp.buttons[idx].pressed;
@@ -414,8 +424,8 @@ function btnJustPressed(gp, idx) {
 
 function handleGamepadInput(gp, dt) {
   if (!gp) return;
-  const speed = FLY_SPEED * dt;
-  const turn = TURN_SPEED * dt;
+  const moveSpeed = MOVE_SPEED * dt;
+  const lookSpeed = LOOK_SPEED * dt;
 
   // Shared: Select button to cycle modes
   if (btnJustPressed(gp, 8)) {
@@ -425,63 +435,72 @@ function handleGamepadInput(gp, dt) {
   }
 
   if (camMode === 'drone') {
-    // Mode 2: Left stick = throttle+yaw, Right stick = pitch+roll
-    const throttle = -axisVal(gp, 1); // left Y: up is negative
-    const yaw = axisVal(gp, 0);
-    const pitch = -axisVal(gp, 3); // right Y: up is negative
-    const roll = axisVal(gp, 2);
+    // Left stick = yaw+throttle, Right stick = pitch+roll
+    const rawYaw = stickVal(gp, 0);
+    const rawThrottle = -stickVal(gp, 1);
+    const rawPitch = -stickVal(gp, 3);
+    const rawRoll = stickVal(gp, 2);
 
-    camera.position.y += throttle * DRONE_THRUST * dt;
+    // 平滑旋转输入 (消除手柄抖动)
+    const targetYaw = rawYaw * lookSpeed;
+    const targetPitch = rawPitch * lookSpeed;
+    const targetRoll = rawRoll * lookSpeed;
+    smoothLook.x += (targetYaw - smoothLook.x) * SMOOTH;
+    smoothLook.y += (targetPitch - smoothLook.y) * SMOOTH;
 
-    // Yaw around world Y
-    if (Math.abs(yaw) > 0) {
-      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -yaw * turn);
+    camera.position.y += rawThrottle * THRUST_SPEED * dt;
+
+    if (Math.abs(smoothLook.x) > 0.0001) {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -smoothLook.x);
     }
-    // Pitch around local X
-    if (Math.abs(pitch) > 0) {
-      camera.rotateX(pitch * turn);
+    if (Math.abs(smoothLook.y) > 0.0001) {
+      camera.rotateX(smoothLook.y);
     }
-    // Roll around local Z
-    if (Math.abs(roll) > 0) {
-      camera.rotateZ(-roll * turn);
+    if (Math.abs(targetRoll) > 0.0001) {
+      camera.rotateZ(-targetRoll);
     }
 
-    // RT (index 7) = thrust forward
+    // RT = thrust forward
     const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
     if (rt > 0.1) {
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      camera.position.addScaledVector(fwd, rt * speed * 2);
+      camera.position.addScaledVector(fwd, rt * moveSpeed * 2);
     }
   }
 
   if (camMode === 'fps') {
     // Left stick = move, Right stick = look
-    const lx = axisVal(gp, 0);
-    const ly = -axisVal(gp, 1);
-    const rx = axisVal(gp, 2);
-    const ry = -axisVal(gp, 3);
+    const lx = stickVal(gp, 0);
+    const ly = -stickVal(gp, 1);
+    const rawRx = stickVal(gp, 2);
+    const rawRy = -stickVal(gp, 3);
 
-    // Yaw + pitch via right stick
-    if (Math.abs(rx) > 0 || Math.abs(ry) > 0) {
-      camera.rotateY(-rx * turn);
-      camera.rotateX(ry * turn);
+    // 平滑旋转
+    const targetRx = rawRx * lookSpeed;
+    const targetRy = rawRy * lookSpeed;
+    smoothLook.x += (targetRx - smoothLook.x) * SMOOTH;
+    smoothLook.y += (targetRy - smoothLook.y) * SMOOTH;
+
+    if (Math.abs(smoothLook.x) > 0.0001 || Math.abs(smoothLook.y) > 0.0001) {
+      camera.rotateY(-smoothLook.x);
+      camera.rotateX(smoothLook.y);
     }
 
-    // Move via left stick
+    // 移动 (FPS 模式保持水平)
     if (Math.abs(lx) > 0 || Math.abs(ly) > 0) {
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       fwd.y = 0; fwd.normalize();
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
       right.y = 0; right.normalize();
-      camera.position.addScaledVector(fwd, ly * speed);
-      camera.position.addScaledVector(right, lx * speed);
+      camera.position.addScaledVector(fwd, ly * moveSpeed);
+      camera.position.addScaledVector(right, lx * moveSpeed);
     }
 
-    // LT/LT for up/down
+    // LT/RT for up/down
     const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
     const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
-    if (lt > 0.1) camera.position.y -= lt * DRONE_THRUST * dt;
-    if (rt > 0.1) camera.position.y += rt * DRONE_THRUST * dt;
+    if (lt > 0.1) camera.position.y -= lt * THRUST_SPEED * dt;
+    if (rt > 0.1) camera.position.y += rt * THRUST_SPEED * dt;
   }
 
   // Recording buttons (shared across modes)
@@ -500,7 +519,7 @@ window.addEventListener('keydown', (e) => {
   // Shared controls
   if (e.code === 'Space') {
     e.preventDefault();
-    recording ? captureFrame() : toggleRecord();
+    toggleRecord();
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
@@ -516,8 +535,8 @@ window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 function handleKeyboardFly(dt) {
   if (camMode === 'orbit') return;
-  const speed = FLY_SPEED * dt;
-  const turn = TURN_SPEED * dt;
+  const speed = MOVE_SPEED * dt;
+  const turn = LOOK_SPEED * dt;
 
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
