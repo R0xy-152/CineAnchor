@@ -444,3 +444,22 @@ PLY → 深度图序列 → ControlNet RGB帧 → ffmpeg MP4
 **代码已推送。** PLY 文件在 .gitignore 中，需本地生成。
 
 ---
+
+### [2026-05-09 取景器手柄操控 + e2e 测试 — 小win]
+
+**取景器新增功能：**
+- 3 种相机模式：Orbit / Drone (Mode 2) / FPS，UI 按钮 + Tab 键切换
+- Gamepad API 手柄支持（摇杆死区 0.15，Select 切模式，A 录制帧，B 开始/停止）
+- 键盘飞行操控：WASD 移动 + Q/E 升降 + 方向键视角 + Shift 加速
+- 视锥体跟随修复（`.camera` 属性 + `updateMatrixWorld()`）
+- 右下角提示文字随模式切换
+
+**e2e 全链路测试 (z=7→4.5, 8 帧)：**
+- 深度图：7/8 OK (帧 7 饱和)
+- RGB 帧：**5 CLEAR / 1 FAINT / 2 BLUR**
+- 视频：ffmpeg 合成成功 → `videos/e2e_test_output.mp4` (161KB, 8fps)
+- 帧 3-4 (z~5.6→5.1) 异常 BLUR — 深度图正常但 ControlNet 推理速度骤降
+
+**mac 推的新文件 `frame_interpolator.py` 已 pull。** 下一步怎么配合？
+
+---
