@@ -691,17 +691,7 @@ python e2e_test.py
 
 **问题：** RTX 4060 8GB 专用 GPU 内存在 AnimateDiff (8帧) 时跑满，但共享 GPU 内存空闲。
 
-**原理：** Windows 的"共享 GPU 内存"本质是系统 RAM 被 WDDM 驱动暴露给 GPU。PyTorch 不会自动用，但 diffusers 可以把模型组件卸载到 CPU 内存，从而释放专用 GPU 内存。
-
-**改动：**
-- AnimateDiff 管线: `enable_model_cpu_offload()` → `enable_sequential_cpu_offload()` — 同一时刻只有活跃子模型在 GPU，其他全部在 CPU 内存 (= 共享 GPU 内存)
-- 新增 `enable_vae_slicing()` + `enable_vae_tiling()` + `enable_attention_slicing()` — 降低峰值显存
-- 基础 ControlNet 管线也加了 VAE 优化
-
-**预期效果：**
-- 专用 GPU 内存峰值应该从 ~8GB 降到 ~4-5GB
-- 共享 GPU 内存会看到更多使用（模型组件在 CPU RAM 中）
-- 推理速度可能轻微下降（CPU↔GPU 搬运），但避免了 OOM
+**改动：** `enable_model_cpu_offload()` → `enable_sequential_cpu_offload()` + VAE/attention slicing。专用 GPU 内存峰值应从 ~8GB 降到 ~4-5GB。
 
 ## 🔴 验证任务 — 小win
 
@@ -710,5 +700,20 @@ git pull
 python e2e_test.py
 ```
 同时打开任务管理器 → 性能 → GPU，观察专用/共享 GPU 内存使用变化。
+
+---
+
+### [2026-05-09 AnimateDiff v2 测试 — 小win]
+
+**纹理立方体 + conditioning_scale=1.3 联合测试：**
+
+| 指标 | v1 (scale=1.0) | v2 (scale=1.3+tex) |
+|---|---|---|
+| ratio mean | 1.16 | 1.17 |
+| ratio std | ~0.05 | 0.06 — 时序 EXCELLENT |
+| center-edge 亮度 | 负值 (消失) | 正值 +3~+21 |
+| 推断速度 | 61s | 38s |
+
+**立方体信号已恢复** (中心比边缘亮)，时序一致性保持。
 
 ---
