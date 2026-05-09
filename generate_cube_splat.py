@@ -89,5 +89,147 @@ def create_cube_splat(output_path="test_scene.ply", num_points=20000):
     print(f"Saved {len(xyz)} surface points → {output_path}")
 
 
+def create_large_cube_splat(output_path="scene_large_cube.ply", num_points=30000):
+    """6x6x6 大立方体，表面均匀采样，尺度更紧以保持锐利边缘。"""
+    print(f"Generating LARGE cube (6x6x6) with {num_points} surface points...")
+
+    points_per_face = num_points // 6
+    remainder = num_points % 6
+    half = 3.0  # half-size
+
+    faces = []
+    for face_idx in range(6):
+        n = points_per_face + (1 if face_idx < remainder else 0)
+        u = np.random.rand(n) * 2 - 1  # [-1, 1]
+        v = np.random.rand(n) * 2 - 1
+        ones = np.ones(n)
+
+        if face_idx == 0:
+            pts = np.column_stack([u * half, v * half, ones * half])
+        elif face_idx == 1:
+            pts = np.column_stack([u * half, v * half, -ones * half])
+        elif face_idx == 2:
+            pts = np.column_stack([ones * half, u * half, v * half])
+        elif face_idx == 3:
+            pts = np.column_stack([-ones * half, u * half, v * half])
+        elif face_idx == 4:
+            pts = np.column_stack([u * half, ones * half, v * half])
+        else:
+            pts = np.column_stack([u * half, -ones * half, v * half])
+        faces.append(pts)
+
+    xyz = np.concatenate(faces, axis=0).astype(np.float32)
+    np.random.shuffle(xyz)
+
+    _write_ply(xyz, scale_log=-2.5, opacity_log=15.0, output_path=output_path)
+
+
+def create_multi_object_splat(output_path="scene_multi.ply", num_points=30000):
+    """多物体场景：3 个立方体 + 1 个球体，分散在 [-4,4]^3 空间。"""
+    print(f"Generating MULTI-OBJECT scene with {num_points} points...")
+
+    # 物体定义: (type, center, size/radius, point_count)
+    objects = [
+        ("cube", (0.0, 0.0, 0.0), 1.8, 12000),      # 中心大立方体
+        ("cube", (3.5, 1.5, -1.0), 1.0, 6000),       # 右前小立方体
+        ("cube", (-3.0, -1.0, 2.0), 1.2, 6000),      # 左后小立方体
+        ("sphere", (1.0, -2.5, -2.0), 1.0, 6000),    # 下方球体
+    ]
+
+    parts = []
+    for obj_type, center, size, count in objects:
+        cx, cy, cz = center
+        if obj_type == "cube":
+            # 六面均匀采样
+            per_face = count // 6
+            rem = count % 6
+            for fi in range(6):
+                n = per_face + (1 if fi < rem else 0)
+                u = np.random.rand(n) * 2 - 1
+                v = np.random.rand(n) * 2 - 1
+                ones = np.ones(n) * size
+                if fi == 0:
+                    pts = np.column_stack([u * size + cx, v * size + cy, ones + cz])
+                elif fi == 1:
+                    pts = np.column_stack([u * size + cx, v * size + cy, -ones + cz])
+                elif fi == 2:
+                    pts = np.column_stack([ones + cx, u * size + cy, v * size + cz])
+                elif fi == 3:
+                    pts = np.column_stack([-ones + cx, u * size + cy, v * size + cz])
+                elif fi == 4:
+                    pts = np.column_stack([u * size + cx, ones + cy, v * size + cz])
+                else:
+                    pts = np.column_stack([u * size + cx, -ones + cy, v * size + cz])
+                parts.append(pts)
+        else:
+            # 球体：单位球面随机采样 + 缩放 + 平移
+            pts = np.random.randn(count, 3).astype(np.float32)
+            pts = pts / np.linalg.norm(pts, axis=1, keepdims=True) * size
+            pts = pts + np.array([cx, cy, cz])
+            parts.append(pts)
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)
+    np.random.shuffle(xyz)
+
+    _write_ply(xyz, scale_log=-2.0, opacity_log=12.0, output_path=output_path)
+
+
+def _write_ply(xyz, scale_log, opacity_log, output_path):
+    """通用 PLY 写入：XYZ→RGB 颜色映射 + 固定尺度/不透明度/旋转。"""
+    n = len(xyz)
+
+    # 颜色：坐标映射到 RGB
+    xyz_min = xyz.min(axis=0)
+    xyz_max = xyz.max(axis=0)
+    xyz_range = xyz_max - xyz_min
+    xyz_range[xyz_range == 0] = 1.0
+    rgb_norm = (xyz - xyz_min) / xyz_range
+    rgb = (rgb_norm * 0.6 + 0.2).clip(0, 1)  # 避免纯黑纯白
+
+    C0 = 0.28209479177387814
+    f_dc = ((rgb - 0.5) / C0).astype(np.float32)
+    scale = np.full((n, 3), scale_log, dtype=np.float32)
+    rot = np.zeros((n, 4), dtype=np.float32)
+    rot[:, 0] = 1.0  # 单位四元数 w=1
+    opacity = np.full((n, 1), opacity_log, dtype=np.float32)
+
+    dtype = [
+        ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+        ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),
+        ('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4'),
+        ('opacity', 'f4'),
+        ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),
+        ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')
+    ]
+
+    elements = np.empty(n, dtype=dtype)
+    elements['x'] = xyz[:, 0]
+    elements['y'] = xyz[:, 1]
+    elements['z'] = xyz[:, 2]
+    elements['nx'] = 0
+    elements['ny'] = 0
+    elements['nz'] = 0
+    elements['f_dc_0'] = f_dc[:, 0]
+    elements['f_dc_1'] = f_dc[:, 1]
+    elements['f_dc_2'] = f_dc[:, 2]
+    elements['opacity'] = opacity[:, 0]
+    elements['scale_0'] = scale[:, 0]
+    elements['scale_1'] = scale[:, 1]
+    elements['scale_2'] = scale[:, 2]
+    elements['rot_0'] = rot[:, 0]
+    elements['rot_1'] = rot[:, 1]
+    elements['rot_2'] = rot[:, 2]
+    elements['rot_3'] = rot[:, 3]
+
+    PlyData([PlyElement.describe(elements, 'vertex')]).write(output_path)
+    print(f"Saved {n} points → {output_path}")
+
+
 if __name__ == "__main__":
-    create_cube_splat()
+    print("=" * 50)
+    print("  Generating all CineAnchor scene PLYs")
+    print("=" * 50)
+    create_cube_splat("test_scene.ply", num_points=20000)
+    create_large_cube_splat("scene_large_cube.ply", num_points=30000)
+    create_multi_object_splat("scene_multi.ply", num_points=30000)
+    print("\nDone. 3 PLY files generated.")
