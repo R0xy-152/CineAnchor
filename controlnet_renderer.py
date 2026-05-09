@@ -58,7 +58,8 @@ class ControlNetRenderer:
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
                    num_inference_steps: int = 20, guidance_scale: float = 7.5,
                    seed: int = 42,
-                   controlnet_conditioning_scale: float = 1.0) -> str:
+                   controlnet_conditioning_scale: float = 1.0,
+                   enhance_depth: bool = False) -> str:
         """
         从深度图生成 RGB 图像。
 
@@ -83,7 +84,8 @@ class ControlNetRenderer:
         if depth_image.size != (512, 512):
             depth_image = depth_image.resize((512, 512), Image.LANCZOS)
 
-        depth_image = self._enhance_depth(depth_image)
+        if enhance_depth:
+            depth_image = self._enhance_depth(depth_image)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
 
@@ -105,7 +107,8 @@ class ControlNetRenderer:
 
     def render_batch(self, depth_dir: str, prompt: str, output_dir: str,
                      num_inference_steps: int = 20, seed: int = 42,
-                     controlnet_conditioning_scale: float = 1.0) -> list[str]:
+                     controlnet_conditioning_scale: float = 1.0,
+                     enhance_depth: bool = False) -> list[str]:
         """
         批量渲染：读取目录下所有深度图，逐帧生成 RGB 图像。
 
@@ -141,7 +144,8 @@ class ControlNetRenderer:
             self.render_rgb(depth_path, prompt, output_path,
                             num_inference_steps=num_inference_steps,
                             seed=seed,
-                            controlnet_conditioning_scale=controlnet_conditioning_scale)
+                            controlnet_conditioning_scale=controlnet_conditioning_scale,
+                            enhance_depth=enhance_depth)
             output_paths.append(output_path)
 
         print(f"Batch render complete: {len(output_paths)} frames → {output_dir}")
@@ -194,7 +198,8 @@ class ControlNetRenderer:
                         num_inference_steps: int = 25,
                         guidance_scale: float = 7.5,
                         seed: int = 42,
-                        controlnet_conditioning_scale: float = 1.0) -> list[str]:
+                        controlnet_conditioning_scale: float = 1.0,
+                        enhance_depth: bool = False) -> list[str]:
         """
         AnimateDiff + ControlNet 联合生成。
 
@@ -222,7 +227,8 @@ class ControlNetRenderer:
             img = Image.open(p).convert("RGB")
             if img.size != (512, 512):
                 img = img.resize((512, 512), Image.LANCZOS)
-            img = self._enhance_depth(img)
+            if enhance_depth:
+                img = self._enhance_depth(img)
             depth_images.append(img)
 
         print(f"AnimateDiff render: {len(depth_images)} frames, "

@@ -1069,4 +1069,22 @@ python e2e_test.py               # AnimateDiff + 边缘增强 + 新 prompt
 
 ratio 1.21→1.09, std 0.049→0.087。边缘增强+Prompt 反效果。baseline 仍是最佳。
 
+### [2026-05-10 mac 回复 — 回退边缘增强]
+
+**结论：Canny 边缘增强对 ControlNet-Depth 有害。** 
+
+边缘叠加的硬边界与 3DGS 软深度渐变不兼容，ControlNet 将其解读为伪几何特征，反而破坏结构。
+
+**代码变更：** `_enhance_depth()` 保留但改为 opt-in（默认 `enhance_depth=False`）。
+`render_rgb()`, `render_batch()`, `render_animated()` 均新增 `enhance_depth` 参数，默认关闭。
+
+**Phase 1 最终配置（baseline，已验证最优）：**
+- controlnet_conditioning_scale = 1.7
+- seed = 42 (统一)
+- enhance_depth = False
+- 纹理立方体 (amplitude=0.05, freq=4)
+- ratio = 1.21, std = 0.049
+
+ratio 1.21 天花板是 SD 1.5 + 3DGS 软边缘的固有限制。突破需要换更好的基础模型（SDXL ControlNet）或更高分辨率渲染。
+
 ---
