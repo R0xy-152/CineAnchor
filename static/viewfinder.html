@@ -443,11 +443,15 @@ window.renderVideo = async function() {
 
 // ---- Camera Mode System ----
 let camMode = 'orbit'; // orbit | drone | fps
-const DEADZONE = 0.12;
-const MOVE_SPEED = 3.0;   // units/sec (位移)
-const LOOK_SPEED = 1.2;   // rad/sec  (旋转，比位移更慢以精确构图)
-const THRUST_SPEED = 2.0;  // units/sec (升降)
-const STICK_POWER = 2.2;   // 响应曲线指数 (>1 = 中心区更精细)
+
+// 摇杆物理参数 (模仿 Unreal Engine 手感模型)
+const DEADZONE = 0.10;
+const STICK_POWER = 2.5;       // 响应曲线 (>2 中心区极精细)
+const ACCEL = 4.0;             // 加速灵敏度 (越高越快达到目标速度)
+const DECEL = 7.0;             // 减速灵敏度 (比加速快 = 松手即停)
+const MOVE_SPEED = 4.0;        // 最大移动速度 units/sec
+const LOOK_SPEED = 1.8;        // 最大旋转速度 rad/sec
+const THRUST_SPEED = 3.0;      // 升降速度
 
 window.setMode = function(mode) {
   camMode = mode;
@@ -458,12 +462,157 @@ window.setMode = function(mode) {
   document.getElementById('instr-orbit').style.display = mode === 'orbit' ? '' : 'none';
   document.getElementById('instr-fly').style.display = mode !== 'orbit' ? '' : 'none';
   controls.enabled = mode === 'orbit';
+  // 切模式时重置物理状态
+  velMove.set(0, 0, 0);
+  velLook.set(0, 0);
   if (mode !== 'orbit') controls.target.copy(camera.position).add(
     new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
   );
 };
 
-// ---- Gamepad ----
+// ---- 速度物理 (加速度模型) ----
+// 当前速度 → 逐帧 lerp 到目标速度 → 丝滑手感
+const velMove = new THREE.Vector3();   // 当前移动速度 (world units/s)
+const velLook = new THREE.Vector2();   // 当前旋转速度 (rad/s)
+
+function stickCurve(gp, idx) {
+  const raw = gp.axes[idx] || 0;
+  const abs = Math.abs(raw);
+  if (abs < DEADZONE) return 0;
+  const norm = (abs - DEADZONE) / (1 - DEADZONE);
+  return Math.sign(raw) * Math.pow(norm, STICK_POWER);
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function updateVelocity(dt) {
+  // 目标速度 (从手柄/键盘累积)
+  const targetMove = new THREE.Vector3();
+  const targetLook = new THREE.Vector2();
+
+  const gp = pollGamepad();
+  if (gp) readGamepadTarget(gp, targetMove, targetLook);
+  if (camMode !== 'orbit') readKeyboardTarget(targetMove, targetLook);
+
+  // 加速度平滑: lerp 当前速度 → 目标速度
+  // 松手时 (目标=0) 用更快 decel，推动时用 accel
+  const t = dt * (targetMove.length() > 0.01 ? ACCEL : DECEL);
+  velMove.lerp(targetMove, Math.min(t, 1));
+
+  const tl = dt * (targetLook.length() > 0.01 ? ACCEL : DECEL);
+  velLook.x = lerp(velLook.x, targetLook.x, Math.min(tl, 1));
+  velLook.y = lerp(velLook.y, targetLook.y, Math.min(tl, 1));
+
+  // 应用速度到相机
+  if (velMove.length() > 0.0005) {
+    // 在相机本地坐标系中移动
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); right.y = 0; right.normalize(); }
+
+    const localMove = new THREE.Vector3()
+      .addScaledVector(right, velMove.x)
+      .addScaledVector(new THREE.Vector3(0, 1, 0), velMove.y)
+      .addScaledVector(fwd, velMove.z);
+
+    camera.position.addScaledVector(localMove, dt);
+  }
+
+  if (Math.abs(velLook.x) > 0.0002 || Math.abs(velLook.y) > 0.0002) {
+    if (camMode === 'drone') {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -velLook.x * dt);
+      camera.rotateX(velLook.y * dt);
+    } else {
+      camera.rotateY(-velLook.x * dt);
+      camera.rotateX(velLook.y * dt);
+    }
+  }
+}
+
+// ---- Gamepad → 目标速度 ----
+function readGamepadTarget(gp, targetMove, targetLook) {
+  // Shared: Select to cycle modes
+  if (btnJustPressed(gp, 8)) {
+    const modes = ['orbit', 'drone', 'fps'];
+    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
+  }
+
+  if (camMode === 'drone') {
+    targetMove.y = -stickCurve(gp, 1) * THRUST_SPEED;        // 左 Y → 升降
+    targetLook.x = stickCurve(gp, 0) * LOOK_SPEED;            // 左 X → 偏航
+    targetLook.y = -stickCurve(gp, 3) * LOOK_SPEED;           // 右 Y → 俯仰
+
+    // RT → 前推
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (rt > 0.1) targetMove.z = rt * MOVE_SPEED;
+  }
+
+  if (camMode === 'fps') {
+    targetMove.x = stickCurve(gp, 0) * MOVE_SPEED;            // 左 X → 右移
+    targetMove.z = -stickCurve(gp, 1) * MOVE_SPEED;           // 左 Y → 前进
+    targetLook.x = stickCurve(gp, 2) * LOOK_SPEED;            // 右 X → 水平看
+    targetLook.y = -stickCurve(gp, 3) * LOOK_SPEED;           // 右 Y → 垂直看
+
+    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (lt > 0.1) targetMove.y = -lt * THRUST_SPEED;
+    if (rt > 0.1) targetMove.y = rt * THRUST_SPEED;
+  }
+
+  // Recording
+  if (camMode !== 'orbit') {
+    if (btnJustPressed(gp, 0)) captureFrame();
+    if (btnJustPressed(gp, 1)) toggleRecord();
+  }
+}
+
+// ---- Keyboard → 目标速度 ----
+const keys = {};
+
+function readKeyboardTarget(targetMove, targetLook) {
+  const spd = MOVE_SPEED;
+  const lspd = LOOK_SPEED;
+
+  if (keys['KeyW']) targetMove.z = spd;
+  if (keys['KeyS']) targetMove.z = -spd;
+  if (keys['KeyA']) camMode === 'drone' ? (targetLook.x = lspd * 1.5) : (targetMove.x = -spd);
+  if (keys['KeyD']) camMode === 'drone' ? (targetLook.x = -lspd * 1.5) : (targetMove.x = spd);
+  if (keys['KeyQ']) targetMove.y = -THRUST_SPEED;
+  if (keys['KeyE']) targetMove.y = THRUST_SPEED;
+
+  if (camMode === 'drone') {
+    if (keys['ArrowUp']) targetLook.y = lspd;
+    if (keys['ArrowDown']) targetLook.y = -lspd;
+    if (keys['ArrowLeft']) targetLook.x = lspd;
+    if (keys['ArrowRight']) targetLook.x = -lspd;
+  } else {
+    if (keys['ArrowUp']) targetLook.y = lspd;
+    if (keys['ArrowDown']) targetLook.y = -lspd;
+    if (keys['ArrowLeft']) targetLook.x = lspd;
+    if (keys['ArrowRight']) targetLook.x = -lspd;
+  }
+
+  if (keys['ShiftLeft'] || keys['ShiftRight']) {
+    targetMove.z = spd * 3;
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  keys[e.code] = true;
+
+  if (e.code === 'Space') { e.preventDefault(); toggleRecord(); }
+  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleRecord(); }
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    const modes = ['orbit', 'drone', 'fps'];
+    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
+  }
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+// ---- Gamepad 连接检测 ----
 let gamepadConnected = false;
 let lastGamepadButtons = {};
 
@@ -485,192 +634,11 @@ function pollGamepad() {
   return active;
 }
 
-function stickVal(gp, idx) {
-  const raw = gp.axes[idx] || 0;
-  const abs = Math.abs(raw);
-  if (abs < DEADZONE) return 0;
-  // 将 [deadzone, 1] 重映射到 [0, 1] 再做幂次曲线
-  const normalized = (abs - DEADZONE) / (1 - DEADZONE);
-  const curved = Math.pow(normalized, STICK_POWER);
-  return Math.sign(raw) * curved;
-}
-
-// 旋转平滑: 指数移动平均消除手柄抖动
-const smoothLook = { x: 0, y: 0 };
-const SMOOTH = 0.12; // 越小越平滑但延迟越大 (0.12 = 电影级阻尼)
-
 function btnJustPressed(gp, idx) {
   const pressed = gp.buttons[idx] && gp.buttons[idx].pressed;
   const was = lastGamepadButtons[idx] || false;
   lastGamepadButtons[idx] = pressed;
   return pressed && !was;
-}
-
-function handleGamepadInput(gp, dt) {
-  if (!gp) return;
-  const moveSpeed = MOVE_SPEED * dt;
-  const lookSpeed = LOOK_SPEED * dt;
-
-  // Shared: Select button to cycle modes
-  if (btnJustPressed(gp, 8)) {
-    const modes = ['orbit', 'drone', 'fps'];
-    const next = modes[(modes.indexOf(camMode) + 1) % 3];
-    setMode(next);
-  }
-
-  if (camMode === 'drone') {
-    // Left stick = yaw+throttle, Right stick = pitch+roll
-    const rawYaw = stickVal(gp, 0);
-    const rawThrottle = -stickVal(gp, 1);
-    const rawPitch = -stickVal(gp, 3);
-    const rawRoll = stickVal(gp, 2);
-
-    // 平滑旋转输入 (消除手柄抖动)
-    const targetYaw = rawYaw * lookSpeed;
-    const targetPitch = rawPitch * lookSpeed;
-    const targetRoll = rawRoll * lookSpeed;
-    smoothLook.x += (targetYaw - smoothLook.x) * SMOOTH;
-    smoothLook.y += (targetPitch - smoothLook.y) * SMOOTH;
-
-    camera.position.y += rawThrottle * THRUST_SPEED * dt;
-
-    if (Math.abs(smoothLook.x) > 0.0001) {
-      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -smoothLook.x);
-    }
-    if (Math.abs(smoothLook.y) > 0.0001) {
-      camera.rotateX(smoothLook.y);
-    }
-    if (Math.abs(targetRoll) > 0.0001) {
-      camera.rotateZ(-targetRoll);
-    }
-
-    // RT = thrust forward
-    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
-    if (rt > 0.1) {
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      camera.position.addScaledVector(fwd, rt * moveSpeed * 2);
-    }
-  }
-
-  if (camMode === 'fps') {
-    // Left stick = move, Right stick = look
-    const lx = stickVal(gp, 0);
-    const ly = -stickVal(gp, 1);
-    const rawRx = stickVal(gp, 2);
-    const rawRy = -stickVal(gp, 3);
-
-    // 平滑旋转
-    const targetRx = rawRx * lookSpeed;
-    const targetRy = rawRy * lookSpeed;
-    smoothLook.x += (targetRx - smoothLook.x) * SMOOTH;
-    smoothLook.y += (targetRy - smoothLook.y) * SMOOTH;
-
-    if (Math.abs(smoothLook.x) > 0.0001 || Math.abs(smoothLook.y) > 0.0001) {
-      camera.rotateY(-smoothLook.x);
-      camera.rotateX(smoothLook.y);
-    }
-
-    // 移动 (FPS 模式保持水平)
-    if (Math.abs(lx) > 0 || Math.abs(ly) > 0) {
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      fwd.y = 0; fwd.normalize();
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      right.y = 0; right.normalize();
-      camera.position.addScaledVector(fwd, ly * moveSpeed);
-      camera.position.addScaledVector(right, lx * moveSpeed);
-    }
-
-    // LT/RT for up/down
-    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
-    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
-    if (lt > 0.1) camera.position.y -= lt * THRUST_SPEED * dt;
-    if (rt > 0.1) camera.position.y += rt * THRUST_SPEED * dt;
-  }
-
-  // Recording buttons (shared across modes)
-  if (camMode !== 'orbit') {
-    if (btnJustPressed(gp, 0)) captureFrame();           // A button
-    if (btnJustPressed(gp, 1)) toggleRecord();           // B button
-  }
-}
-
-// ---- Keyboard ----
-const keys = {};
-window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  keys[e.code] = true;
-
-  // Shared controls
-  if (e.code === 'Space') {
-    e.preventDefault();
-    toggleRecord();
-  }
-  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
-    e.preventDefault();
-    toggleRecord();
-  }
-  if (e.code === 'Tab') {
-    e.preventDefault();
-    const modes = ['orbit', 'drone', 'fps'];
-    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
-  }
-});
-window.addEventListener('keyup', (e) => { keys[e.code] = false; });
-
-function handleKeyboardFly(dt) {
-  if (camMode === 'orbit') return;
-  const speed = MOVE_SPEED * dt;
-  const turn = LOOK_SPEED * dt;
-
-  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-
-  // Movement
-  if (keys['KeyW']) {
-    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); }
-    camera.position.addScaledVector(fwd, speed);
-  }
-  if (keys['KeyS']) {
-    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); }
-    camera.position.addScaledVector(fwd, -speed);
-  }
-  if (keys['KeyA']) {
-    if (camMode === 'drone') {
-      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), turn * 1.5);
-    } else {
-      right.y = 0; right.normalize();
-      camera.position.addScaledVector(right, -speed);
-    }
-  }
-  if (keys['KeyD']) {
-    if (camMode === 'drone') {
-      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -turn * 1.5);
-    } else {
-      right.y = 0; right.normalize();
-      camera.position.addScaledVector(right, speed);
-    }
-  }
-  if (keys['KeyQ']) camera.position.y -= speed;
-  if (keys['KeyE']) camera.position.y += speed;
-
-  // Arrow keys for looking
-  if (camMode === 'drone') {
-    if (keys['ArrowUp']) camera.rotateX(turn);
-    if (keys['ArrowDown']) camera.rotateX(-turn);
-    if (keys['ArrowLeft']) camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), turn);
-    if (keys['ArrowRight']) camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -turn);
-  } else {
-    if (keys['ArrowUp']) camera.rotateX(turn);
-    if (keys['ArrowDown']) camera.rotateX(-turn);
-    if (keys['ArrowLeft']) camera.rotateY(turn);
-    if (keys['ArrowRight']) camera.rotateY(-turn);
-  }
-
-  // Shift to boost
-  if (keys['ShiftLeft'] || keys['ShiftRight']) {
-    const boost = 3.0 * dt;
-    camera.position.addScaledVector(fwd, boost);
-  }
 }
 
 // ---- Clear ----
@@ -687,14 +655,12 @@ const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.1); // cap to avoid jumps
+  const dt = Math.min(clock.getDelta(), 0.1);
 
   if (camMode === 'orbit') {
     controls.update();
   } else {
-    const gp = pollGamepad();
-    handleGamepadInput(gp, dt);
-    handleKeyboardFly(dt);
+    updateVelocity(dt);
   }
 
   updateHUD();
