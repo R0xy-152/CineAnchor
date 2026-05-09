@@ -422,3 +422,25 @@ PLY → 深度图序列 → ControlNet RGB帧 → ffmpeg MP4
 - `main.py` — CORS + 静态文件服务
 
 ---
+
+### [2026-05-09 多场景生成 & 基准测试 — 小win]
+
+**已完成：** `generate_cube_splat.py` 新增 `create_large_cube_splat()` + `create_multi_object_splat()` + `_write_ply()` 共享工厂
+
+**三个场景基准对比 (z=8→4, 6帧)：**
+
+| 场景 | 深度 OK 帧 | 饱和帧 | ControlNet ratio |
+|---|---|---|---|
+| test_scene (2x2x2 cube) | 3/6 | 3 | **2.3-3.3x** ✅ |
+| large_cube (6x6x6) | 1/6 | 5 | 未测 (深度太差) |
+| multi (4 objects) | 3/6 | 3 | 1.0-1.3x ❌ |
+
+**结论：原始小立方体仍是效果最好的场景。**
+- 大立方体更快填充像平面 → 更早饱和
+- 多物体场景深度图过于复杂 → ControlNet 无法锁定几何结构
+- 小立方体的清晰边缘 + 规则形状 = ControlNet-Depth 的最佳匹配
+- 深度饱和是所有场景共有的限制（near_plane=0.01 / far_plane=100 范围过大，场景深度变化被压缩）
+
+**代码已推送。** PLY 文件在 .gitignore 中，需本地生成。
+
+---
