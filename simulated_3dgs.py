@@ -91,7 +91,7 @@ def _sdf_sphere(p: np.ndarray, center: np.ndarray, radius: float) -> np.ndarray:
 
 def _sdf_box(p: np.ndarray, center: np.ndarray, half_size: np.ndarray) -> np.ndarray:
     q = np.abs(p - center) - half_size
-    return np.linalg.norm(np.maximum(q, 0), axis=-1) + min(np.max(q, axis=-1), 0)
+    return np.linalg.norm(np.maximum(q, 0), axis=-1) + np.minimum(np.max(q, axis=-1), 0)
 
 
 def _sdf_plane(p: np.ndarray, normal: np.ndarray, offset: float) -> np.ndarray:
