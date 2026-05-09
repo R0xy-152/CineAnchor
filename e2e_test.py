@@ -46,16 +46,15 @@ def main():
             shutil.rmtree(d)
             print(f"  Cleaned: {d}/")
 
-    # ---- Step 0: 检查 PLY (优先纹理立方体) ----
-    ply_path = "scene_textured_cube.ply"
-    if not os.path.exists(ply_path):
-        ply_path = "test_scene.ply"
-        if not os.path.exists(ply_path):
-            print(f"ERROR: {ply_path} not found. Run: python generate_cube_splat.py")
-            sys.exit(1)
-        print(f"  Using: {ply_path} (textured cube not found)")
+    # ---- Step 0: 检查 PLY (优先复杂场景) ----
+    for candidate in ["scene_complex.ply", "scene_textured_cube.ply", "test_scene.ply"]:
+        if os.path.exists(candidate):
+            ply_path = candidate
+            print(f"  Using: {ply_path}")
+            break
     else:
-        print(f"  Using: {ply_path} (textured cube)")
+        print("ERROR: No PLY found. Run: python generate_cube_splat.py")
+        sys.exit(1)
 
     # ---- Step 1: 深度图渲染 (全局归一化) ----
     print("\n[1/3] Rendering depth maps with global normalization...")
