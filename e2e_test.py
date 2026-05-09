@@ -26,7 +26,7 @@ def generate_camera_trajectory(num_frames: int = 6):
     poses = []
     for i in range(num_frames):
         t = i / max(num_frames - 1, 1)
-        z = 7.0 * (1 - t) + 4.5 * t  # 8 → 2
+        z = 7.0 * (1 - t) + 4.0 * t  # 更近以测试新的深度平面
         # 四元数 (0, 1, 0, 0) = 绕 Y 轴 180°，让相机从 +Z 看向原点
         poses.append({
             "position": {"x": 0.0, "y": 0.0, "z": z},
@@ -58,7 +58,8 @@ def main():
     renderer = Real3DGS(ply_path)
 
     poses = generate_camera_trajectory(num_frames=8)
-    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=7 → z=4.5)")
+    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=7 → z=4.0)")
+    print(f"  Near/far clip: {renderer.near_plane}/{renderer.far_plane}")
 
     depth_map_paths = renderer.render_depth_maps_batch("test_scene", poses)
     print(f"  Generated {len(depth_map_paths)} globally-normalized depth maps")

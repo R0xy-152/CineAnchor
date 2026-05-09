@@ -518,3 +518,26 @@ python frame_interpolator.py
 - 3x RAFT：`e2e_interpolated.mp4` (22帧, 24fps, 262KB)
 
 ---
+
+## 🔴 验证任务 — 小win
+
+**任务：测试收紧的深度裁剪平面能否扩展 dolly 区间**
+
+**改动：** `real_3dgs.py` near_plane 0.01→2.0, far_plane 100→15.0
+- 旧区间 10000:1，场景深度~3单位被压缩到极小范围 → 噪声级深度变化
+- 新区间 7.5:1，场景深度占 40%，应该有更丰富的深度变化
+- e2e dolly 范围 z=7→4.0 (原来 z=7→4.5，多推近了 0.5)
+
+```bash
+git pull
+python generate_cube_splat.py
+python e2e_test.py
+```
+
+**验证点：**
+1. 深度图 raw depth 范围是否更宽了（min/max 差值应该比之前大）
+2. 帧 5-7 (z<5) 的深度 unique values 是否 >1（之前这个区域全饱和）
+3. 清晰立方体帧数是否从 5/8 提升
+4. 插值视频 RAFT 是否正常
+
+---

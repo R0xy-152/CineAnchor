@@ -19,6 +19,11 @@ class Real3DGS:
         
         self.output_dir = "real_depth_maps"
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # 深度裁剪平面 (可按场景覆盖)
+        # 收紧区间能提升深度精度——避免场景深度被压缩到窄带里
+        self.near_plane = 2.0
+        self.far_plane = 15.0
         
         # 预设摄像机内参 (MVP 阶段固定为 512x288, 模拟 16:9 比例)
         self.width = 512
@@ -134,11 +139,11 @@ class Real3DGS:
                 Ks=Ks,
                 width=self.width,
                 height=self.height,
-                near_plane=0.01,
-                far_plane=100.0,
-                render_mode="RGB+ED" # 告诉 gsplat 我们既要 RGB，也要 Expected Depth (ED)
+                near_plane=self.near_plane,
+                far_plane=self.far_plane,
+                render_mode="RGB+ED"
             )
-            
+
             # 提取深度图 (ED = Expected Depth)
             depth_data = outputs[1].squeeze().cpu().numpy()
             
@@ -209,8 +214,8 @@ class Real3DGS:
                 Ks=K.unsqueeze(0),
                 width=self.width,
                 height=self.height,
-                near_plane=0.01,
-                far_plane=100.0,
+                near_plane=self.near_plane,
+                far_plane=self.far_plane,
                 render_mode="RGB+ED"
             )
             depth = outputs[1].squeeze().cpu().numpy()
