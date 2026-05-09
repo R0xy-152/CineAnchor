@@ -497,3 +497,24 @@ python frame_interpolator.py
 报告 RAFT 模式是否启用、插值帧数、以及视频主观感受。
 
 ---
+
+### [2026-05-09 帧插值测试结果 — 小win]
+
+**RAFT 光流插值测试完成：**
+
+| 验证点 | 结果 |
+|------|------|
+| RAFT 模式 | `Interpolation mode: raft` ✅ |
+| 插值帧数 | 8 → **22 帧 (3x)** ✅ |
+| ControlNet 推理 | 全 8 帧 ~4.2 it/s，稳定无波动 ✅ |
+| 插值视频 | `videos/e2e_interpolated.mp4` (262KB, 24fps) |
+
+**Bug 修复：** `frame_interpolator.py` 中 `_flow_to_grid()` 的 flow 维度处理有误——`flow[:, 0]` 保留了 batch 维度导致 grid 变成 5D 而非 4D，`grid_sample` 报错。改为 `flow[0, 0]` / `flow[0, 1]` squeeze 掉 batch 维。已修复并推送。
+
+**GPU 热节流确认解决：** 上次帧 3-4 推理骤降确实是显存碎片/热节流——这次清进程后全 8 帧一致稳定。
+
+**视频对比：**
+- 无插值：`e2e_test_output.mp4` (8帧, 8fps, 161KB)
+- 3x RAFT：`e2e_interpolated.mp4` (22帧, 24fps, 262KB)
+
+---
