@@ -225,6 +225,45 @@ def _write_ply(xyz, scale_log, opacity_log, output_path):
     print(f"Saved {n} points → {output_path}")
 
 
+def create_textured_cube_splat(output_path="scene_textured_cube.ply",
+                                num_points=20000, perturb=0.05, freq=4):
+    """带正弦表面纹理的立方体。扰动沿面法线方向，给 ControlNet 提供更多几何特征。"""
+    print(f"Generating TEXTURED cube (2x2x2) with {num_points} surface points...")
+    print(f"  Perturb amplitude={perturb}, frequency={freq}")
+
+    points_per_face = num_points // 6
+    remainder = num_points % 6
+
+    faces = []
+    for face_idx in range(6):
+        n = points_per_face + (1 if face_idx < remainder else 0)
+        u = np.random.rand(n) * 2 - 1  # [-1, 1]
+        v = np.random.rand(n) * 2 - 1
+        ones = np.ones(n)
+
+        # 正弦扰动: sin(freq*pi*u) * cos(freq*pi*v) 沿法线偏移
+        wave = perturb * np.sin(freq * np.pi * u) * np.cos(freq * np.pi * v)
+
+        if face_idx == 0:   # +Z
+            pts = np.column_stack([u, v, ones + wave])
+        elif face_idx == 1: # -Z
+            pts = np.column_stack([u, v, -ones + wave])
+        elif face_idx == 2: # +X
+            pts = np.column_stack([ones + wave, u, v])
+        elif face_idx == 3: # -X
+            pts = np.column_stack([-ones + wave, u, v])
+        elif face_idx == 4: # +Y
+            pts = np.column_stack([u, ones + wave, v])
+        else:               # -Y
+            pts = np.column_stack([u, -ones + wave, v])
+        faces.append(pts)
+
+    xyz = np.concatenate(faces, axis=0).astype(np.float32)
+    np.random.shuffle(xyz)
+
+    _write_ply(xyz, scale_log=-2.0, opacity_log=15.0, output_path=output_path)
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  Generating all CineAnchor scene PLYs")
@@ -232,4 +271,5 @@ if __name__ == "__main__":
     create_cube_splat("test_scene.ply", num_points=20000)
     create_large_cube_splat("scene_large_cube.ply", num_points=30000)
     create_multi_object_splat("scene_multi.ply", num_points=30000)
-    print("\nDone. 3 PLY files generated.")
+    create_textured_cube_splat("scene_textured_cube.ply", num_points=20000)
+    print("\nDone. 4 PLY files generated.")
