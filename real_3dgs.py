@@ -260,7 +260,7 @@ if __name__ == "__main__":
     poses = []
     for i in range(8):
         t = i / 7
-        z = 8.0 * (1 - t) + 2.0 * t
+        z = 7.0 * (1 - t) + 3.5 * t  # 安全范围，避免贴脸饱和
         poses.append({
             "position": {"x": 0.0, "y": 0.0, "z": z},
             "rotation": {"x": 0.0, "y": 1.0, "z": 0.0, "w": 0.0}

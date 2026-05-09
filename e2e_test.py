@@ -18,13 +18,14 @@ import numpy as np
 
 def generate_camera_trajectory(num_frames: int = 8):
     """
-    生成 dolly-in 推近轨迹：相机从 z=8 匀速推进到 z=2。
+    生成 dolly-in 推近轨迹：相机从 z=7 匀速推进到 z=3.5。
+    范围限制避免相机贴脸时高斯面片饱和整个像平面。
     所有相机朝向原点 (0,0,0)，使用 OpenCV 约定 (Z-forward)。
     """
     poses = []
     for i in range(num_frames):
         t = i / max(num_frames - 1, 1)
-        z = 8.0 * (1 - t) + 2.0 * t  # 8 → 2
+        z = 7.0 * (1 - t) + 3.5 * t  # 8 → 2
         # 四元数 (0, 1, 0, 0) = 绕 Y 轴 180°，让相机从 +Z 看向原点
         poses.append({
             "position": {"x": 0.0, "y": 0.0, "z": z},
@@ -50,7 +51,7 @@ def main():
     renderer = Real3DGS(ply_path)
 
     poses = generate_camera_trajectory(num_frames=8)
-    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=8 → z=2)")
+    print(f"  Camera trajectory: {len(poses)} frames (dolly-in: z=7 → z=3.5)")
 
     depth_map_paths = renderer.render_depth_maps_batch("test_scene", poses)
     print(f"  Generated {len(depth_map_paths)} globally-normalized depth maps")
@@ -63,8 +64,7 @@ def main():
     prompt = "a colorful cube floating in dark space, studio lighting, high quality"
     frame_dir = "controlnet_output/e2e_frames"
     cn_renderer.render_batch(renderer.output_dir, prompt, frame_dir,
-                             num_inference_steps=20,
-                             controlnet_conditioning_scale=0.85)
+                             num_inference_steps=20)
 
     # ---- Step 3: ffmpeg 视频合成 ----
     print("\n[3/3] Stitching frames into video...")
