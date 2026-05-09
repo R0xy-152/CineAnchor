@@ -1,0 +1,28 @@
+# ============================================================
+# CineAnchor - Python Dependencies
+# ============================================================
+# Platform notes:
+#   - NVIDIA GPU (Windows/Linux): full GPU acceleration via CUDA
+#   - macOS (Apple Silicon): CPU-only mode for gsplat, MPS for PyTorch
+# ============================================================
+
+# --- Core API ---
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
+
+# --- 3DGS Rendering ---
+# gsplat: install from the local submodule or prebuilt wheel
+#   NVIDIA: pip install gsplat/ (builds from source with CUDA)
+#   macOS:  pip install gsplat/ (CPU-only fallback, slow)
+#   Windows: use the prebuilt gsplat-1.4.0+pt24cu121 wheel
+torch>=2.0.0
+numpy>=1.24.0
+plyfile>=1.0.0
+pillow>=10.0.0
+
+# --- Optional: Diffusion / ControlNet ---
+# diffusers>=0.28.0
+# transformers>=4.36.0
+# controlnet-aux>=0.0.7
+# opencv-python>=4.8.0

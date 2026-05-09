@@ -1,0 +1,4 @@
+
+       import os                                                                                                           
+       os.system("curl -L -o download_dataset.py https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/examples/datasets/download_dataset.py")
+       os.system("python download_dataset.py --dataset mipnerf360")                                                        

@@ -1,0 +1,26 @@
+# Rendering outputs
+real_depth_maps/
+simulated_depth_maps/
+simulated_videos/
+depth_map_output/
+
+# Large binaries
+*.ply
+*.whl
+*.deb
+*.npz
+*.mp4
+*.gif
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
