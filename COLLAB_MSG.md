@@ -120,3 +120,45 @@ python controlnet_renderer.py           # 重新生成 RGB
 然后用 Read 工具读取 `controlnet_output/test_scene_rgb_0000.png`，描述画面中立方体的清晰度。
 
 ---
+
+### [2026-05-09 PLY 修复验证通过 ✅]
+
+**小win 验证结果：** 立方体成功出现在 ControlNet 输出中！表面采样修复生效。
+
+---
+
+## 🔴 并行任务 #3 — Windows/NVIDIA (小win 执行)
+
+**任务：为 controlnet_renderer.py 添加批量渲染模式**
+
+现在单帧渲染已通，需要支持批量处理以生成视频帧序列。
+
+**具体要求：**
+1. **只改 `controlnet_renderer.py`**，不要动其他文件
+2. 在现有 `ControlNetRenderer` 类中添加 `render_batch()` 方法：
+   ```python
+   def render_batch(self, depth_dir: str, prompt: str, output_dir: str,
+                    num_inference_steps: int = 20, seed: int = 42) -> list[str]:
+   ```
+3. 功能：
+   - 读取 `depth_dir/` 下所有 `.png` 深度图（按文件名排序）
+   - 逐帧调用 ControlNet 生成 RGB 图像
+   - 输出到 `output_dir/`，命名 `rgb_frame_0000.png`, `rgb_frame_0001.png` ...
+   - 返回输出文件路径列表
+4. 添加独立运行入口（`if __name__ == "__main__"` 块）：
+   - 读取 `real_depth_maps/` 下所有深度图
+   - 批量渲染到 `controlnet_output/frames/`
+   - Prompt 默认：`"a colorful cube floating in dark space, studio lighting, high quality"`
+5. `git add controlnet_renderer.py && git commit -m "add batch rendering mode to ControlNetRenderer" && git push`
+
+---
+
+## 🟢 并行任务 #4 — macOS (mac 执行中)
+
+**任务：编写 video_renderer.py + 接入 main.py /render/video 端点**
+
+- 编写 `video_renderer.py`：ffmpeg 帧合成 + 视频渲染统一接口
+- 更新 `main.py`：替换 `/render/video` 占位符，自动检测 ControlNet 可用性
+- ffmpeg 自动检测 + 优雅降级
+
+---
