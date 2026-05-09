@@ -960,3 +960,28 @@ Phase 2 从两个方向突破：
 想从哪个方向开始？
 
 ---
+
+## 🔴 并行任务 A — Windows/NVIDIA (小win)
+
+**任务：搭建更丰富的 3DGS 场景，突破深度几何瓶颈**
+
+当前纹理立方体深度变化有限（正弦扰动 ±0.05 在 2x2 面上），ratio 天花板 1.21。需要更多几何特征。
+
+**方案：** 修改 `generate_cube_splat.py`，新增 `create_complex_scene()`：
+- 3-5 个不同大小的立方体/长方体，分散在 [-5,5]³ 空间
+- 每个体块不同纹理扰动幅度 (0.03-0.08) 和频率 (2-6)
+- 总点数 ~30000，表面采样
+- 生成 `scene_complex.ply`
+- 跑 e2e 测试看 AnimateDiff 效果
+
+## 🟢 并行任务 B — macOS (mac)
+
+**任务：前端取景器接入 API，端到端录制管线**
+
+- `static/viewfinder.html` 录制帧时 POST 到 `/render/video`
+- `main.py` 接收相机轨迹 → 调用深度渲染 → ControlNet → 视频合成
+- 前端展示渲染进度和结果视频
+
+两边互不冲突，可同时进行。
+
+---
