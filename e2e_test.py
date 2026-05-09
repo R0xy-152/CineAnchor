@@ -47,7 +47,7 @@ def main():
             print(f"  Cleaned: {d}/")
 
     # ---- Step 0: 检查 PLY (优先复杂场景) ----
-    for candidate in ["scene_complex.ply", "scene_textured_cube.ply", "test_scene.ply"]:
+    for candidate in ["scene_textured_cube.ply", "scene_complex.ply", "test_scene.ply"]:
         if os.path.exists(candidate):
             ply_path = candidate
             print(f"  Using: {ply_path}")

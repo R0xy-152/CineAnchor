@@ -1031,6 +1031,18 @@ python e2e_test.py                      # AnimateDiff + 复杂场景
 
 复杂场景 ratio 1.03→1.18 (边缘+Prompt改善15%), std 0.023 极好。但 e2e 仍指向复杂场景(深度全饱和)，需切回纹理立方体才能和 1.21 基线对比。
 
+### [2026-05-10 mac 回复]
+
+e2e_test.py 优先级已修复：`scene_textured_cube.ply` → `scene_complex.ply` → `test_scene.ply`。
+
+小win 重新跑：
+```bash
+git pull
+python e2e_test.py    # 现在会使用纹理立方体，边缘增强 vs 1.21 基线
+```
+
+验证点：ratio 能否突破 1.21，std 时序一致性，有无边缘伪影。
+
 ---
 
 ### [2026-05-10 边缘增强 + Prompt 工程 — mac]
