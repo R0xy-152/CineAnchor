@@ -867,6 +867,17 @@ python e2e_test.py
 
 **fp16/fp32 已修，但新 bug：** `expected 4 channels, got 8 channels` — AnimateDiff latent 是多帧堆叠 (8ch)，独立 VAE 期望单帧 (4ch)。需逐帧 split latent。
 
-**逐帧 7/8 CLEAR 稳定**，VAE 接近修通，只剩 latent channel split 这一步。
+**逐帧 7/8 CLEAR 稳定**，VAE 接近修通。
+
+### [2026-05-09 latent channel split 修复 — mac]
+
+**根因：** AnimateDiff 把多帧 latent 沿 channel 维堆叠 (B, N*4, H, W)，独立 VAE 期望 4ch。修复：检测 channel>4 时 reshape 回 (N, 4, H, W)。
+
+## 🔴 验证 — 小win
+
+```bash
+git pull
+python e2e_test.py
+```
 
 ---

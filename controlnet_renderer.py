@@ -238,7 +238,13 @@ class ControlNetRenderer:
             )
 
         # VAE 解码
-        latents = output.frames[0]  # (N, 4, 64, 64)
+        # AnimateDiff latent 可能 (B, N*4, H, W) 堆叠，拆分到 (N, 4, H, W)
+        latents = output.frames[0]
+        if latents.dim() == 3:
+            latents = latents.unsqueeze(0)
+        if latents.shape[1] > 4:
+            n_frames = latents.shape[1] // 4
+            latents = latents.reshape(n_frames, 4, *latents.shape[2:])
 
         if vae_cpu_decode and self.device.type == "cuda":
             # 独立 CPU VAE — 不碰管线 VAE 的 accelerate hooks
