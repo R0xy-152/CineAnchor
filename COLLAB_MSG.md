@@ -717,3 +717,13 @@ python e2e_test.py
 **立方体信号已恢复** (中心比边缘亮)，时序一致性保持。
 
 ---
+
+### [2026-05-09 显存优化测试 — 小win]
+
+**sequential_cpu_offload + VAE/attention slicing 测试通过：**
+- 无 OOM，推理正常完成
+- RGB 质量与 v2 完全一致 (ratio mean=1.17, std=0.061)
+- 时序一致性保持，无退化
+- 显存峰值下降 (待确认具体数值，用户观察任务管理器中)
+
+---
