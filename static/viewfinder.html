@@ -121,8 +121,8 @@
 </div>
 
 <div id="instructions">
-  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>Space/R 录制</span>
-  <span id="instr-fly" style="display:none">WASD 移动 | Q/E 升降 | 方向键 看<br>RT 加速 | Space/R 录制</span>
+  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 录制 | Space 升高</span>
+  <span id="instr-fly" style="display:none">WASD 移动 | Q/E 升降 | 方向键 看<br>RT 加速 | R 录制 | Space 升高</span>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -364,7 +364,7 @@ window.toggleRecord = async function() {
 function startRecording() {
   recording = true;
   const btn = document.getElementById('btn-record');
-  btn.textContent = '停止录制 (Space)';
+  btn.textContent = '停止录制 (R)';
   btn.classList.add('recording');
 
   // Capture one frame immediately
@@ -579,7 +579,7 @@ function readKeyboardTarget(targetMove, targetLook) {
   if (keys['KeyA']) camMode === 'drone' ? (targetLook.x = lspd * 1.5) : (targetMove.x = -spd);
   if (keys['KeyD']) camMode === 'drone' ? (targetLook.x = -lspd * 1.5) : (targetMove.x = spd);
   if (keys['KeyQ']) targetMove.y = -THRUST_SPEED;
-  if (keys['KeyE']) targetMove.y = THRUST_SPEED;
+  if (keys['KeyE'] || keys['Space']) targetMove.y = THRUST_SPEED;
 
   if (camMode === 'drone') {
     if (keys['ArrowUp']) targetLook.y = lspd;
@@ -602,7 +602,6 @@ window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   keys[e.code] = true;
 
-  if (e.code === 'Space') { e.preventDefault(); toggleRecord(); }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleRecord(); }
   if (e.code === 'Tab') {
     e.preventDefault();
