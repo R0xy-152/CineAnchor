@@ -862,3 +862,11 @@ python e2e_test.py
 ```
 
 ---
+
+### [2026-05-09 VAE fix v3 测试 — 小win]
+
+**fp16/fp32 已修，但新 bug：** `expected 4 channels, got 8 channels` — AnimateDiff latent 是多帧堆叠 (8ch)，独立 VAE 期望单帧 (4ch)。需逐帧 split latent。
+
+**逐帧 7/8 CLEAR 稳定**，VAE 接近修通，只剩 latent channel split 这一步。
+
+---
