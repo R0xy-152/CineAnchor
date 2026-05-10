@@ -1119,10 +1119,19 @@ python e2e_test.py                             # SDXL 模式 (默认)
 
 如需对比 SD 1.5: `python e2e_test.py --sd15`
 
-**验证点:**
-1. 无 OOM（如果 OOM，改 `sdxl_resolution=512` 重试）
-2. ratio 对比 baseline 1.21 → 期望 >1.5
-3. SDXL 单帧推理时间（预计比 SD 1.5 慢 2-3x）
-4. 输出视频 MP4 可播放
+---
+
+### [2026-05-10 SDXL 首次测试 — 小win]
+
+**结果：ratio=0.53 std=0.115 — 远不如 SD 1.5 (1.21/0.049)**
+
+| 指标 | SD 1.5 AnimateDiff | SDXL per-frame |
+|------|-------------------|----------------|
+| ratio | **1.21** | 0.53 ❌ |
+| std | **0.049** | 0.115 ❌ |
+| 推理 | ~5s/frame | ~8.6s/frame @768 |
+| VRAM | OK | OK (cpu_offload) |
+
+SDXL small ControlNet (320MB) 深度约束太弱，768px 反而稀释了几何信号。SD 1.5 + AnimateDiff 仍是压倒性最优。
 
 ---
