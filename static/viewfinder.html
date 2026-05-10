@@ -73,8 +73,9 @@
   #video-result video { width: 100%; border-radius: 6px; }
   #video-result a { color: #4ade80; font-size: 11px; display: block; text-align: center; margin-top: 4px; }
   #depth-preview { display: none; margin-top: 10px; }
-  #depth-preview img { width: 100%; border-radius: 6px; opacity: 0.8; }
+  #depth-preview canvas { width: 100%; border-radius: 6px; }
   #depth-preview .label { font-size: 10px; color: #666; text-align: center; }
+  #depth-preview .scale { display: flex; justify-content: space-between; font-size: 9px; color: #888; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -126,8 +127,9 @@
     <a id="result-link" target="_blank" href="#">下载视频</a>
   </div>
   <div id="depth-preview">
-    <div class="label">最新深度图</div>
-    <img id="depth-img" src="" alt="深度图预览">
+    <div class="label">最新深度图 (伪彩色)</div>
+    <canvas id="depth-canvas" width="256" height="144"></canvas>
+    <div class="scale"><span>远</span><span>近</span></div>
   </div>
 
   <div id="status">
@@ -432,11 +434,8 @@ async function captureFrame() {
     });
     frameId++;
     document.getElementById('frame-count').textContent = frameId;
-    // Show depth preview
-    const preview = document.getElementById('depth-preview');
-    const img = document.getElementById('depth-img');
-    img.src = API + result.depth_map_url;
-    preview.style.display = 'block';
+    // Show colorized depth preview
+    showDepthPreview(API + result.depth_map_url);
   } catch (e) {
     console.error('Record frame failed:', e);
   }
@@ -444,6 +443,58 @@ async function captureFrame() {
 
 // Single frame capture
 window.captureSingleFrame = captureFrame;
+
+// ---- Pseudo-color depth preview ----
+const DEPTH_COLORMAP = (() => {
+  // Inferno-style: 黑→紫→红→橙→黄→白
+  const stops = [
+    [0,     [0,0,4]],       // 远: 深黑紫
+    [0.25,  [58,17,110]],   // 紫
+    [0.5,   [188,55,84]],   // 红
+    [0.75,  [248,142,36]],  // 橙
+    [1.0,   [252,254,164]], // 近: 亮黄白
+  ];
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let lo = stops[0], hi = stops[stops.length - 1];
+    for (let s = 1; s < stops.length; s++) {
+      if (t <= stops[s][0]) { hi = stops[s]; lo = stops[s-1]; break; }
+    }
+    const frac = (t - lo[0]) / (hi[0] - lo[0] + 0.0001);
+    lut[i*3]   = lo[1][0] + (hi[1][0] - lo[1][0]) * frac;
+    lut[i*3+1] = lo[1][1] + (hi[1][1] - lo[1][1]) * frac;
+    lut[i*3+2] = lo[1][2] + (hi[1][2] - lo[1][2]) * frac;
+  }
+  return lut;
+})();
+
+function showDepthPreview(url) {
+  const preview = document.getElementById('depth-preview');
+  const canvas = document.getElementById('depth-canvas');
+  preview.style.display = 'block';
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const px = data.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const gray = px[i];  // R channel = grayscale
+      const j = gray * 3;
+      px[i]   = DEPTH_COLORMAP[j];
+      px[i+1] = DEPTH_COLORMAP[j+1];
+      px[i+2] = DEPTH_COLORMAP[j+2];
+    }
+    ctx.putImageData(data, 0, 0);
+    canvas.style.aspectRatio = `${img.width}/${img.height}`;
+  };
+  img.src = url;
+}
 
 // ---- Render ----
 window.renderVideo = async function() {
