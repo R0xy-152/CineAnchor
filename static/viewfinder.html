@@ -89,6 +89,7 @@
     <option value="office_scene">Office</option>
     <option value="forest_path">Forest Path</option>
   </select>
+  <div id="scene-desc" style="font-size:10px;color:#666;margin-top:2px"></div>
 
   <label>Prompt</label>
   <textarea id="prompt" placeholder="描述你想要的画面风格...">a colorful cube floating in dark space, studio lighting, high quality</textarea>
@@ -331,13 +332,51 @@ function buildSceneProxy(sceneId) {
   }
 }
 
+// Scene descriptions (synced from API /scenes)
+const SCENE_DESC = {
+  test_scene: '一个彩色立方体悬浮在空间中',
+  office_scene: '有桌椅的简单办公室，窗外城市景观',
+  forest_path: '穿过茂密森林的小径，阳光洒落',
+};
+
 // 监听场景切换
 document.getElementById('scene-select').addEventListener('change', (e) => {
-  buildSceneProxy(e.target.value);
+  const sceneId = e.target.value;
+  // 有已录制帧时自动清除
+  if (frameId > 0) {
+    clearFrames();
+  }
+  buildSceneProxy(sceneId);
+  document.getElementById('scene-desc').textContent = SCENE_DESC[sceneId] || '';
 });
 
 // 初始加载
 buildSceneProxy('test_scene');
+document.getElementById('scene-desc').textContent = SCENE_DESC['test_scene'];
+
+// Sync available scenes from API
+async function refreshScenes() {
+  try {
+    const data = await apiCall('GET', '/scenes');
+    const select = document.getElementById('scene-select');
+    const current = select.value;
+    select.innerHTML = '';
+    for (const [id, desc] of Object.entries(data.scenes)) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      select.appendChild(opt);
+      SCENE_DESC[id] = typeof desc === 'string' ? desc : '';
+    }
+    if ([...select.options].some(o => o.value === current)) {
+      select.value = current;
+    }
+    document.getElementById('scene-desc').textContent = SCENE_DESC[select.value] || '';
+  } catch (e) {
+    // Keep defaults
+    document.getElementById('scene-desc').textContent = SCENE_DESC[document.getElementById('scene-select').value] || '';
+  }
+}
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x404060, 2));
@@ -372,6 +411,7 @@ async function checkAPI() {
   }
 }
 checkAPI();
+refreshScenes();
 setInterval(checkAPI, 5000);
 
 async function apiCall(method, path, body) {
