@@ -77,14 +77,16 @@ class VideoRenderer:
 
     # ---- 帧生成 ----
 
-    def _generate_frames(self, depth_map_paths: list[str], prompt: str) -> list[str]:
+    def _generate_frames(self, depth_map_paths: list[str], prompt: str,
+                         conditioning_scale: float = 1.7,
+                         num_steps: int = 25, seed: int = 42) -> list[str]:
         """根据深度图序列生成 RGB 帧。优先使用 ControlNet (GPU)，否则降级到模拟。"""
-        # 尝试 GPU ControlNet
         controlnet = self._init_controlnet()
         if controlnet is not None:
-            return self._generate_controlnet_frames(controlnet, depth_map_paths, prompt)
+            return self._generate_controlnet_frames(
+                controlnet, depth_map_paths, prompt,
+                conditioning_scale, num_steps, seed)
 
-        # 降级：模拟帧生成
         return self._generate_simulated_frames(depth_map_paths)
 
     def _init_controlnet(self):
@@ -99,7 +101,8 @@ class VideoRenderer:
             print(f"[VideoRenderer] ControlNet not available: {e}")
             return None
 
-    def _generate_controlnet_frames(self, controlnet, depth_map_paths, prompt):
+    def _generate_controlnet_frames(self, controlnet, depth_map_paths, prompt,
+                                     conditioning_scale, num_steps, seed):
         """使用 ControlNet 逐帧生成 RGB。优先尝试 AnimateDiff 时序模式。"""
         frame_dir = os.path.join(self.output_dir, "_frames")
         os.makedirs(frame_dir, exist_ok=True)
@@ -109,8 +112,8 @@ class VideoRenderer:
             if len(depth_map_paths) >= 2:
                 return controlnet.render_animated(
                     depth_map_paths, prompt, frame_dir,
-                    num_inference_steps=25, seed=42,
-                    controlnet_conditioning_scale=1.7,
+                    num_inference_steps=num_steps, seed=seed,
+                    controlnet_conditioning_scale=conditioning_scale,
                 )
         except Exception as e:
             print(f"[VideoRenderer] AnimateDiff unavailable ({e}), "
@@ -122,7 +125,8 @@ class VideoRenderer:
             out_path = os.path.join(frame_dir, f"rgb_frame_{i:04d}.png")
             controlnet.render_rgb(
                 depth_path, prompt, out_path,
-                controlnet_conditioning_scale=1.0,
+                controlnet_conditioning_scale=conditioning_scale,
+                num_inference_steps=num_steps, seed=seed,
             )
             frame_paths.append(out_path)
 
@@ -161,20 +165,27 @@ class VideoRenderer:
 
     def render_pipeline(self, depth_map_paths: list[str], prompt: str,
                         scene_id: str, fps: int = 24,
-                        interpolation: int = 1) -> str:
+                        interpolation: int = 1,
+                        conditioning_scale: float = 1.7,
+                        num_steps: int = 25, seed: int = 42) -> str:
         """深度图序列 → RGB 帧 → (插值) → MP4 视频（完整管线）
 
         Args:
             interpolation: 帧插值倍数。1=不插值, 3=每对插入2帧
+            conditioning_scale: ControlNet 几何约束强度
+            num_steps: 扩散推理步数
+            seed: 随机种子
         """
         if not depth_map_paths:
             raise ValueError("No depth maps provided")
 
         print(f"[VideoRenderer] Pipeline start: {len(depth_map_paths)} frames, "
-              f"prompt='{prompt[:50]}...', fps={fps}, interpolation={interpolation}x")
+              f"prompt='{prompt[:50]}...', fps={fps}, interpolation={interpolation}x, "
+              f"scale={conditioning_scale}, steps={num_steps}, seed={seed}")
 
         # Step 1: 帧生成
-        frame_paths = self._generate_frames(depth_map_paths, prompt)
+        frame_paths = self._generate_frames(
+            depth_map_paths, prompt, conditioning_scale, num_steps, seed)
 
         # Step 2: 帧插值 (可选)
         if interpolation > 1:

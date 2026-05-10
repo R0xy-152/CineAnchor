@@ -83,6 +83,9 @@ class RenderVideoRequest(BaseModel):
     prompt: str
     fps: int = 24
     interpolation: int = 1  # 帧插值倍数: 1=不插, 3=3x帧率
+    conditioning_scale: float = 1.7  # ControlNet 注入强度
+    num_steps: int = 25              # 推理步数
+    seed: int = 42                   # 随机种子
 
 class HealthResponse(BaseModel):
     status: str
@@ -200,7 +203,10 @@ async def render_video(request: RenderVideoRequest):
             prompt=prompt,
             scene_id=scene_id,
             fps=fps,
-            interpolation=request.interpolation
+            interpolation=request.interpolation,
+            conditioning_scale=request.conditioning_scale,
+            num_steps=request.num_steps,
+            seed=request.seed,
         )
         recorded_camera_frames.pop(scene_id, None)
         recorded_depth_map_paths.pop(scene_id, None)
