@@ -64,15 +64,37 @@ class VideoRenderer:
         return output_path
 
     def _frames_fallback(self, frame_paths, output_path, fps):
-        """无 ffmpeg 时：将帧复制到输出目录，保存为序列"""
+        """无 ffmpeg 时：优先用 OpenCV 编码 MP4，否则保存帧序列"""
+        # 尝试 OpenCV 写 MP4
+        try:
+            import cv2
+            first = np.array(Image.open(frame_paths[0]))
+            h, w = first.shape[:2]
+            # macOS: avc1 (H.264), 通用: mp4v
+            for codec in ['avc1', 'mp4v']:
+                fourcc = cv2.VideoWriter_fourcc(*codec)
+                writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+                if writer.isOpened():
+                    break
+            if not writer.isOpened():
+                raise RuntimeError("No OpenCV codec available")
+            for src in frame_paths:
+                frame = cv2.cvtColor(np.array(Image.open(src)), cv2.COLOR_RGB2BGR)
+                writer.write(frame)
+            writer.release()
+            print(f"[VideoRenderer] OpenCV MP4 saved: {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"[VideoRenderer] OpenCV fallback failed: {e}")
+
+        # 最后兜底：保存帧序列
         fallback_dir = output_path.replace(".mp4", "_frames")
         os.makedirs(fallback_dir, exist_ok=True)
         for i, src in enumerate(frame_paths):
             dst = os.path.join(fallback_dir, f"frame_{i:04d}.png")
             Image.open(src).save(dst)
-        print(f"ffmpeg not available. Frames saved to: {fallback_dir}")
+        print(f"Frames saved to: {fallback_dir}")
         print("Install ffmpeg: brew install ffmpeg  (macOS)")
-        print("                  winget install ffmpeg  (Windows)")
         return fallback_dir
 
     # ---- 帧生成 ----
