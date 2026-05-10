@@ -212,6 +212,46 @@ scene.add(axes);
 const proxyGroup = new THREE.Group();
 scene.add(proxyGroup);
 
+// Camera trajectory line (录制轨迹可视化)
+const trajectoryPositions = [];
+const trajectoryGeom = new THREE.BufferGeometry();
+const trajectoryMat = new THREE.LineBasicMaterial({ color: 0x4ade80, linewidth: 1, transparent: true, opacity: 0.7 });
+const trajectoryLine = new THREE.Line(trajectoryGeom, trajectoryMat);
+trajectoryLine.visible = false;
+scene.add(trajectoryLine);
+
+// Trajectory waypoints (small spheres at each recorded position)
+const waypointGroup = new THREE.Group();
+waypointGroup.visible = false;
+scene.add(waypointGroup);
+const waypointGeom = new THREE.SphereGeometry(0.06, 6, 6);
+const waypointMat = new THREE.MeshBasicMaterial({ color: 0x4ade80 });
+
+function updateTrajectory(pos) {
+  trajectoryPositions.push(pos.clone());
+  const pts = trajectoryPositions;
+  trajectoryGeom.dispose();
+  trajectoryGeom.setFromPoints(pts);
+  trajectoryLine.geometry = trajectoryGeom;
+  trajectoryLine.visible = pts.length > 1;
+
+  // Add waypoint sphere
+  const dot = new THREE.Mesh(waypointGeom, waypointMat);
+  dot.position.copy(pos);
+  waypointGroup.add(dot);
+  waypointGroup.visible = true;
+}
+
+function clearTrajectory() {
+  trajectoryPositions.length = 0;
+  trajectoryGeom.dispose();
+  trajectoryLine.visible = false;
+  while (waypointGroup.children.length > 0) {
+    waypointGroup.remove(waypointGroup.children[0]);
+  }
+  waypointGroup.visible = false;
+}
+
 function clearProxy() {
   while (proxyGroup.children.length > 0) {
     const child = proxyGroup.children[0];
@@ -445,6 +485,8 @@ async function captureFrame() {
     });
     frameId++;
     document.getElementById('frame-count').textContent = frameId;
+    // Update 3D trajectory
+    updateTrajectory(camera.position);
     // Show colorized depth preview
     showDepthPreview(API + result.depth_map_url);
   } catch (e) {
@@ -794,6 +836,7 @@ window.clearFrames = function() {
   document.getElementById('depth-preview').style.display = 'none';
   document.getElementById('render-progress').style.display = 'none';
   document.getElementById('status').innerHTML = '帧已清空';
+  clearTrajectory();
 }
 
 // ---- Render Loop ----
