@@ -1135,3 +1135,32 @@ python e2e_test.py                             # SDXL 模式 (默认)
 SDXL small ControlNet (320MB) 深度约束太弱，768px 反而稀释了几何信号。SD 1.5 + AnimateDiff 仍是压倒性最优。
 
 ---
+
+## 🔴 DEMO 视频生成 — 小win (紧急, 明天面试)
+
+mac 需要一段高质量 demo 视频给面试展示。请用最优配置生成：
+
+```bash
+git pull
+python generate_cube_splat.py          # 纹理立方体 (scene_textured_cube.ply)
+python e2e_test.py --sd15              # SD 1.5 + AnimateDiff 模式
+```
+
+**最优配置 (已内置):** scale=1.7, seed=42, steps=25, interpolation=3x
+
+**验证点:**
+1. 确认 `videos/e2e_test_output.mp4` 可播放，立方体清晰可见
+2. 期望 ratio ~1.21
+
+**产出:** 把 `videos/e2e_test_output.mp4` 通过 git 提交或传到可访问的地方。
+mac 这边把它放到 `static/` 目录下作为 demo 视频。
+
+```bash
+# 把 demo 视频提交到仓库（如果文件 <100MB）
+cp videos/e2e_test_output.mp4 static/demo_output.mp4
+git add static/demo_output.mp4
+git commit -m "demo: e2e output video for interview demo"
+git push
+```
+
+---
