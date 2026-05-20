@@ -14,6 +14,10 @@ videos/
 *.mp4
 *.gif
 
+# Database
+data/*.db
+data/*.db-*
+
 # Python
 venv/
 __pycache__/

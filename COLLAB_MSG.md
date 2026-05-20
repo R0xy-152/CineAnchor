@@ -1121,6 +1121,62 @@ python e2e_test.py                             # SDXL 模式 (默认)
 
 ---
 
+### ---
+
+## 🔴 任务 — Phase 2 视频渲染 (2026-05-20)
+
+mac 完成了 Phase 1 产品化重构：
+
+**新增功能：**
+- 用户输入 prompt → Meshy API 生成 GLB 3D 模型
+- Three.js 取景器加载 GLB + 自由探索 + 运镜录制
+- Camera path 保存/加载 (SQLite)
+- 产品首页 + PRD 文档
+
+**小win 你需要做的：**
+
+### 环境准备（如果之前已有环境，只需 pull）
+
+```bash
+cd CineAnchor
+git pull
+conda activate cineanchor
+
+# 新增依赖
+pip install httpx
+```
+
+### 测试：渲染一个有真实 camera path 的视频
+
+mac 端在取景器中录制了一组关键帧后，会保存到 SQLite 的 camera_paths 表。小win 可以：
+
+1. **生成 PLY + 跑现有 e2e 验证管线完好：**
+```bash
+python generate_cube_splat.py    # 纹理立方体
+python e2e_test.py --sd15        # SD 1.5 + AnimateDiff 验证
+```
+
+2. **如果 mac 给了 camera path 数据，手动跑渲染：**
+mac 会把 camera path 的关键帧坐标发过来，小win 用这些坐标替换 e2e_test.py 里的 dolly-in 轨迹，渲染出真正的"用户运镜"视频。
+
+### 关键约定不变
+
+- 只改渲染相关文件（generate_cube_splat.py 等），不要改 main.py / app/ / static/
+- 渲染产出放 videos/ 和 real_depth_maps/（已 gitignore）
+- 做完后在 COLLAB_MSG.md 底部追加结果
+
+### 当前管线状态
+
+所有渲染文件保持不变：
+- `real_3dgs.py` — 3DGS 深度渲染 ✅
+- `controlnet_renderer.py` — ControlNet + AnimateDiff ✅
+- `video_renderer.py` — 视频合成 ✅
+- `frame_interpolator.py` — RAFT 插值 ✅
+- `e2e_test.py` — 端到端验证 ✅
+- 最优配置：scale=1.7, seed=42, steps=25, 纹理立方体
+
+---
+
 ### [2026-05-10 SDXL 首次测试 — 小win]
 
 **结果：ratio=0.53 std=0.115 — 远不如 SD 1.5 (1.21/0.049)**

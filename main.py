@@ -1,29 +1,33 @@
 import os
-import shutil
 import sys
+import shutil
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import Optional
 import uvicorn
-import json
 
-from video_renderer import VideoRenderer
+from app.config import MODELS_DIR, VIDEOS_DIR, DEPTH_DIR, RENDER_MODE
+from app.database import init_db
+from app.scene_manager import (
+    create_scene, check_and_update_scene, get_scene, list_scenes
+)
+from app.camera_path import (
+    save_camera_path, get_camera_path, list_camera_paths, delete_camera_path
+)
 
-# --- 渲染引擎自动检测 ---
-# macOS 无 CUDA/gsplat → 降级到模拟模式
-# Windows/Linux + NVIDIA → 使用真实 3DGS
+# --- 初始化数据库 ---
+init_db()
 
+# --- 渲染引擎检测 ---
 render_mode: str = "unknown"
 render_service: object = None
 
 def _init_render_service():
-    """检测环境并初始化可用的渲染引擎"""
     global render_mode, render_service
 
-    # 1. 尝试真实 3DGS (需要 gsplat + CUDA)
     try:
         from real_3dgs import Real3DGS
         service = Real3DGS("test_scene.ply")
@@ -37,16 +41,14 @@ def _init_render_service():
         print(f"[CineAnchor] Real3DGS unavailable: {e}")
         print("[CineAnchor] Falling back to simulated mode.")
 
-    # 2. 降级到模拟 3DGS
     from simulated_3dgs import Simulated3DGS
     render_mode = "simulated_3dgs"
     render_service = Simulated3DGS()
     print(f"[CineAnchor] Render mode: SIMULATED_3DGS (CPU/Mock)")
 
-# --- FastAPI 应用初始化 ---
-app = FastAPI(title="CineAnchor API", description="API for controlled AI video generation with 3D spatial anchors.")
+# --- FastAPI App ---
+app = FastAPI(title="CineAnchor API", version="2.0.0")
 
-# CORS — 允许前端跨域访问
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,22 +58,38 @@ app.add_middleware(
 )
 
 _init_render_service()
+
+from video_renderer import VideoRenderer
 video_renderer = VideoRenderer()
 
-# --- 挂载静态文件目录 ---
+# --- 静态文件 ---
 app.mount("/static", StaticFiles(directory="static", html=True), name="static")
-app.mount("/depth_maps", StaticFiles(directory=render_service.output_dir), name="depth_maps")
-app.mount("/videos", StaticFiles(directory=video_renderer.output_dir), name="videos")
+app.mount("/static/models", StaticFiles(directory=str(MODELS_DIR)), name="models")
+app.mount("/depth_maps", StaticFiles(directory=str(DEPTH_DIR)), name="depth_maps")
+app.mount("/videos", StaticFiles(directory=str(VIDEOS_DIR)), name="videos")
+app.mount("/docs", StaticFiles(directory="docs", html=True), name="docs")
 
-
-# --- 全局变量 ---
-recorded_camera_frames: Dict[str, List[Dict]] = {}
-recorded_depth_map_paths: Dict[str, List[str]] = {}
+# --- 全局录制状态 ---
+recorded_camera_frames: dict = {}
+recorded_depth_map_paths: dict = {}
 
 # --- Pydantic 模型 ---
+
+class GenerateSceneRequest(BaseModel):
+    prompt: str
+
+class SaveCameraPathRequest(BaseModel):
+    scene_id: str
+    name: str = "Untitled"
+    duration: float = 5.0
+    fps: int = 24
+    camera_mode: str = "orbit"
+    interpolation: str = "catmull-rom"
+    keyframes: list[dict] = []
+
 class CameraPose(BaseModel):
-    position: Dict[str, float]
-    rotation: Dict[str, float]
+    position: dict
+    rotation: dict
 
 class RecordFrameRequest(BaseModel):
     scene_id: str
@@ -82,34 +100,27 @@ class RenderVideoRequest(BaseModel):
     scene_id: str
     prompt: str
     fps: int = 24
-    interpolation: int = 1  # 帧插值倍数: 1=不插, 3=3x帧率
-    conditioning_scale: float = 1.7  # ControlNet 注入强度
-    num_steps: int = 25              # 推理步数
-    seed: int = 42                   # 随机种子
-
-class HealthResponse(BaseModel):
-    status: str
-    render_mode: str
-    platform: str
-    cuda_available: bool
+    interpolation: int = 1
+    conditioning_scale: float = 1.7
+    num_steps: int = 25
+    seed: int = 42
 
 
-# --- API 路由 ---
+# ============================================================
+# 状态
+# ============================================================
+@app.get("/", summary="首页")
+async def root():
+    return RedirectResponse("/static/index.html")
 
-@app.get("/", summary="Root", tags=["Status"])
-async def read_root():
-    return RedirectResponse("/static/viewfinder.html")
-
-@app.get("/health", response_model=HealthResponse, summary="Health check with render capability", tags=["Status"])
+@app.get("/health")
 async def health():
-    """报告服务健康状态和当前渲染能力"""
     cuda_ok = False
     try:
         import torch
         cuda_ok = torch.cuda.is_available()
     except Exception:
         pass
-
     return {
         "status": "ok",
         "render_mode": render_mode,
@@ -117,9 +128,41 @@ async def health():
         "cuda_available": cuda_ok,
     }
 
-@app.get("/scenes", summary="List available scenes", tags=["Scene Management"])
-async def list_scenes():
-    """列出当前可用的场景"""
+# ============================================================
+# 3D 场景生成 (Meshy API)
+# ============================================================
+@app.post("/api/scenes/generate", summary="Text-to-3D 生成")
+async def generate_scene(req: GenerateSceneRequest):
+    """提交 Meshy Text-to-3D 生成任务"""
+    result = create_scene(req.prompt)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/api/scenes", summary="场景列表")
+async def api_list_scenes(status: str = None):
+    return {"scenes": list_scenes(status)}
+
+@app.get("/api/scenes/{scene_id}", summary="场景详情")
+async def api_get_scene(scene_id: str):
+    scene = get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="场景不存在")
+    return scene
+
+@app.post("/api/scenes/{scene_id}/check", summary="检查生成状态")
+async def api_check_scene(scene_id: str):
+    """检查并更新 Meshy 任务状态"""
+    result = check_and_update_scene(scene_id)
+    if "error" in result and "不存在" in result["error"]:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+# ============================================================
+# 取景器 (保留兼容旧 API)
+# ============================================================
+@app.get("/scenes", summary="旧版场景列表")
+async def old_list_scenes():
     if render_mode == "simulated_3dgs":
         scenes = render_service.scenes
         return {
@@ -131,107 +174,129 @@ async def list_scenes():
         "scenes": {"test_scene": "Real 3DGS scene loaded from PLY file"}
     }
 
-@app.post("/scene/create", summary="Create/select a scene", tags=["Scene Management"])
-async def create_scene(scene_id: str):
-    """
-    创建或选择一个 3DGS 场景。
-    模拟模式下支持: office_scene, forest_path
-    真实模式下当前仅支持: test_scene
-    """
+@app.post("/scene/create", summary="旧版创建场景")
+async def old_create_scene(scene_id: str):
     if render_mode == "simulated_3dgs":
         if scene_id not in render_service.scenes:
             available = list(render_service.scenes.keys())
             raise HTTPException(status_code=404, detail=f"Scene '{scene_id}' not found. Available: {available}")
-
     elif render_mode == "real_3dgs":
         if scene_id != "test_scene":
             raise HTTPException(status_code=404, detail=f"Scene '{scene_id}' not found. Available: ['test_scene']")
-
     else:
         raise HTTPException(status_code=500, detail=f"Unknown render mode: {render_mode}")
 
-    desc = render_service.scenes[scene_id]["description"] if render_mode == "simulated_3dgs" else \
-        "A real 3D Gaussian Splatting scene loaded from PLY."
-
     recorded_camera_frames[scene_id] = []
     recorded_depth_map_paths[scene_id] = []
-    return {"scene_id": scene_id, "description": desc, "render_mode": render_mode}
+    return {"scene_id": scene_id, "render_mode": render_mode}
 
-@app.post("/camera/record_frame", summary="Record camera pose and generate depth map", tags=["Camera Control"])
-async def record_camera_frame(request: RecordFrameRequest):
-    """
-    接收前端发送的摄像机姿态，触发深度图渲染。
-    """
+@app.post("/camera/record_frame", summary="旧版录制帧")
+async def old_record_frame(request: RecordFrameRequest):
     scene_id = request.scene_id
     frame_id = request.frame_id
     camera_pose = request.camera_pose.model_dump()
 
     if scene_id not in recorded_camera_frames:
-        raise HTTPException(status_code=400, detail=f"Scene '{scene_id}' not initialized. Call /scene/create first.")
+        raise HTTPException(status_code=400, detail=f"Scene '{scene_id}' not initialized.")
 
     try:
         depth_map_path = render_service.render_depth_map(
-            scene_id=scene_id,
-            camera_pose=camera_pose,
-            frame_id=frame_id
+            scene_id=scene_id, camera_pose=camera_pose, frame_id=frame_id
         )
-        recorded_camera_frames[scene_id].append({"frame_id": frame_id, "camera_pose": camera_pose, "depth_map_path": depth_map_path})
+        recorded_camera_frames[scene_id].append({
+            "frame_id": frame_id, "camera_pose": camera_pose, "depth_map_path": depth_map_path
+        })
         recorded_depth_map_paths[scene_id].append(depth_map_path)
-
         depth_map_url = f"/depth_maps/{os.path.basename(depth_map_path)}"
         return {"message": f"Frame {frame_id} recorded.", "depth_map_path": depth_map_path, "depth_map_url": depth_map_url}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/render/video", summary="Render video from recorded depth maps and prompt", tags=["Video Rendering"])
-async def render_video(request: RenderVideoRequest):
-    """
-    利用录制的深度图序列和语义 Prompt，触发视频渲染。
-    """
+@app.post("/render/video", summary="旧版渲染视频")
+async def old_render_video(request: RenderVideoRequest):
     scene_id = request.scene_id
-    prompt = request.prompt
-    fps = request.fps
-
     if scene_id not in recorded_depth_map_paths or not recorded_depth_map_paths[scene_id]:
-        raise HTTPException(status_code=400, detail=f"No depth maps recorded for scene '{scene_id}'. Record frames first.")
+        raise HTTPException(status_code=400, detail=f"No depth maps recorded for scene '{scene_id}'.")
 
     depth_map_list = recorded_depth_map_paths[scene_id]
-
     try:
         video_filepath = video_renderer.render_pipeline(
-            depth_map_paths=depth_map_list,
-            prompt=prompt,
-            scene_id=scene_id,
-            fps=fps,
+            depth_map_paths=depth_map_list, prompt=request.prompt,
+            scene_id=scene_id, fps=request.fps,
             interpolation=request.interpolation,
             conditioning_scale=request.conditioning_scale,
-            num_steps=request.num_steps,
-            seed=request.seed,
+            num_steps=request.num_steps, seed=request.seed,
         )
         recorded_camera_frames.pop(scene_id, None)
         recorded_depth_map_paths.pop(scene_id, None)
-
         video_url = f"/videos/{os.path.basename(video_filepath)}"
         return {"video_url": video_url, "message": "Video rendering completed."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.delete("/clear_data/{scene_id}", summary="Clear recorded data for a scene", tags=["Scene Management"])
-async def clear_scene_data(scene_id: str):
-    """清理场景的所有录制数据和产出文件"""
+@app.delete("/clear_data/{scene_id}", summary="旧版清空数据")
+async def old_clear_data(scene_id: str):
     if scene_id in recorded_camera_frames:
         recorded_camera_frames.pop(scene_id)
     if scene_id in recorded_depth_map_paths:
         for path in recorded_depth_map_paths.pop(scene_id, []):
             if os.path.exists(path):
                 os.remove(path)
-
-    for d in [render_service.output_dir, video_renderer.output_dir]:
+    for d in [DEPTH_DIR, VIDEOS_DIR]:
         if os.path.exists(d):
             shutil.rmtree(d)
             os.makedirs(d, exist_ok=True)
-
     return {"message": f"All data for scene '{scene_id}' cleared."}
+
+# ============================================================
+# Camera Path CRUD API
+# ============================================================
+@app.post("/api/camera-paths", summary="保存 Camera Path")
+async def api_save_camera_path(req: SaveCameraPathRequest):
+    result = save_camera_path(
+        scene_id=req.scene_id,
+        name=req.name,
+        duration=req.duration,
+        fps=req.fps,
+        camera_mode=req.camera_mode,
+        interpolation=req.interpolation,
+        keyframes=req.keyframes,
+    )
+    return result
+
+@app.get("/api/camera-paths", summary="Camera Path 列表")
+async def api_list_camera_paths(scene_id: str = None):
+    return {"paths": list_camera_paths(scene_id)}
+
+@app.get("/api/camera-paths/{path_id}", summary="Camera Path 详情")
+async def api_get_camera_path(path_id: str):
+    path = get_camera_path(path_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Camera path 不存在")
+    return path
+
+@app.put("/api/camera-paths/{path_id}", summary="更新 Camera Path")
+async def api_update_camera_path(path_id: str, req: SaveCameraPathRequest):
+    existing = get_camera_path(path_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Camera path 不存在")
+    result = save_camera_path(
+        scene_id=req.scene_id,
+        name=req.name,
+        duration=req.duration,
+        fps=req.fps,
+        camera_mode=req.camera_mode,
+        interpolation=req.interpolation,
+        keyframes=req.keyframes,
+        path_id=path_id,
+    )
+    return result
+
+@app.delete("/api/camera-paths/{path_id}", summary="删除 Camera Path")
+async def api_delete_camera_path(path_id: str):
+    if not delete_camera_path(path_id):
+        raise HTTPException(status_code=404, detail="Camera path 不存在")
+    return {"message": "已删除"}
 
 
 # --- 运行 ---

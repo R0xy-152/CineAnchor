@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CineAnchor — AI 3D 取景器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; background: #111; }
+
+  #canvas { display: block; }
+
+  /* ---- 右侧面板 ---- */
+  #panel {
+    position: fixed; top: 16px; right: 16px; width: 300px; max-height: calc(100vh - 32px);
+    overflow-y: auto; background: rgba(20,20,30,0.94); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 20px; color: #ccc; backdrop-filter: blur(16px);
+    z-index: 10; font-size: 13px; scrollbar-width: thin;
+  }
+  #panel h2 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 14px; }
+  #panel label { display: block; font-size: 11px; color: #888; margin: 10px 0 3px; }
+  #panel input, #panel textarea, #panel select {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06); color: #ddd; font-size: 12px; outline: none;
+  }
+  #panel textarea { resize: vertical; min-height: 48px; }
+  #panel button {
+    width: 100%; padding: 10px; border-radius: 6px; border: none;
+    font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 8px;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  #panel button:active { opacity: 0.7; transform: scale(0.98); }
+  .btn-generate { background: #7c3aed; color: #fff; }
+  .btn-generate:disabled { background: #4c1d95; opacity: 0.5; cursor: not-allowed; }
+  .btn-record { background: #4f46e5; color: #fff; }
+  .btn-record.recording { background: #dc2626; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 50% { opacity: 0.6; } }
+  .btn-render { background: #16a34a; color: #fff; }
+  .btn-path { background: rgba(255,255,255,0.08); color: #ccc; }
+  .btn-secondary { background: rgba(255,255,255,0.06); color: #aaa; font-size: 11px; }
+
+  #status-bar { font-size: 11px; color: #888; margin-top: 12px; line-height: 1.6; }
+  #status-bar .ok { color: #4ade80; }
+  #status-bar .err { color: #f87171; }
+  #status-bar .warn { color: #fbbf24; }
+
+  .divider { border-top: 1px solid rgba(255,255,255,0.08); margin: 14px 0; }
+
+  /* ---- 场景缩略图预览 ---- */
+  #scene-preview { width: 100%; border-radius: 8px; margin-top: 8px; display: none; }
+
+  /* ---- 关键帧列表 ---- */
+  #kf-list { max-height: 140px; overflow-y: auto; margin-top: 6px; scrollbar-width: thin; }
+  .kf-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 8px; margin: 2px 0; background: rgba(255,255,255,0.04);
+    border-radius: 4px; font-size: 11px; cursor: pointer;
+  }
+  .kf-item:hover { background: rgba(255,255,255,0.08); }
+  .kf-item .del { color: #f87171; cursor: pointer; padding: 2px 4px; }
+
+  /* ---- HUD ---- */
+  #pose-hud {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(20,20,30,0.85); border-radius: 8px;
+    padding: 10px 14px; color: #888; font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace; z-index: 10;
+  }
+  #pose-hud span { color: #fff; }
+  #instructions {
+    position: fixed; bottom: 16px; right: 320px;
+    color: #555; font-size: 11px; text-align: right; z-index: 10; line-height: 1.6;
+  }
+  .btn-mode {
+    display: inline-block; flex: 1; padding: 6px 0; border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04); color: #888; font-size: 11px;
+    cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .btn-mode.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+  .btn-mode:hover:not(.active) { background: rgba(255,255,255,0.08); color: #ccc; }
+
+  /* ---- 进度条 ---- */
+  #gen-progress { display: none; margin-top: 8px; }
+  #gen-progress .bar-bg { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  #gen-progress .bar-fill { height: 100%; width: 0%; background: #7c3aed; border-radius: 2px; transition: width 0.3s; }
+  #gen-progress .elapsed { font-size: 10px; color: #666; text-align: center; margin-top: 2px; }
+
+  /* ---- 路径选择下拉 ---- */
+  #path-select { margin-top: 4px; }
+
+  /* ---- Toast ---- */
+  #toast {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85); color: #fff; padding: 12px 24px;
+    border-radius: 8px; font-size: 14px; z-index: 100; pointer-events: none;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Panel -->
+<div id="panel">
+  <h2>CineAnchor 取景器</h2>
+
+  <!-- AI 3D 生成 -->
+  <label>Prompt (描述你想要的 3D 场景)</label>
+  <textarea id="prompt-input" placeholder="例如: a medieval castle on a hill, surrounded by pine trees, fantasy style">a cozy japanese zen garden with a wooden bridge over a pond, cherry blossom trees</textarea>
+  <button class="btn-generate" id="btn-generate" onclick="generateScene()">AI 生成 3D 场景</button>
+  <div id="gen-progress">
+    <div class="bar-bg"><div class="bar-fill" id="gen-bar"></div></div>
+    <div class="elapsed" id="gen-elapsed"></div>
+  </div>
+  <img id="scene-preview" alt="预览">
+
+  <div class="divider"></div>
+
+  <!-- 相机模式 -->
+  <label>相机模式</label>
+  <div style="display:flex;gap:4px">
+    <button class="btn-mode active" id="btn-orbit" onclick="setMode('orbit')">Orbit</button>
+    <button class="btn-mode" id="btn-drone" onclick="setMode('drone')">Drone</button>
+    <button class="btn-mode" id="btn-fps" onclick="setMode('fps')">FPS</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Camera Path 录制 -->
+  <label>运镜录制 <span id="kf-count" style="color:#4ade80">0 关键帧</span></label>
+  <div id="kf-list"></div>
+  <div style="display:flex;gap:4px;margin-top:6px">
+    <button class="btn-secondary" onclick="captureKeyframe()" style="flex:1">捕获关键帧 (R)</button>
+    <button class="btn-secondary" onclick="undoKeyframe()" style="flex:1">撤销</button>
+  </div>
+
+  <!-- 插值预览 -->
+  <label style="margin-top:6px">路径名称</label>
+  <input id="path-name" type="text" value="My Camera Path" placeholder="给运镜起个名字">
+
+  <button class="btn-path" onclick="savePath()">保存运镜</button>
+
+  <label>加载已保存的运镜</label>
+  <select id="path-select" onchange="loadPathFromSelect()">
+    <option value="">-- 选择运镜 --</option>
+  </select>
+  <button class="btn-secondary" onclick="previewPath()" style="margin-top:4px">预览运镜 (P)</button>
+
+  <div class="divider"></div>
+
+  <!-- 渲染 -->
+  <label>渲染 Prompt</label>
+  <textarea id="render-prompt" placeholder="描述视频画面风格...">a serene japanese garden, cinematic lighting, 8k, photorealistic</textarea>
+  <button class="btn-render" onclick="renderVideo()">生成视频</button>
+
+  <div id="status-bar">
+    <div id="api-status">API: 检测中...</div>
+    <div id="scene-status">场景: 未加载</div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="pose-hud">
+  <span id="hud-mode">Orbit</span><br>
+  pos: <span id="hud-pos">--</span><br>
+  rot: <span id="hud-quat">--</span>
+</div>
+
+<div id="instructions">
+  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 捕获关键帧 | P 预览运镜</span>
+  <span id="instr-fly" style="display:none">WASD 移动 | Space/Ctrl 升降 | 鼠标转视角<br>R 捕获关键帧 | P 预览运镜 | 点击画布锁定</span>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+// ============================================================
+// Three.js 初始化
+// ============================================================
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 15, 60);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 2, 8);
+camera.lookAt(0, 0, 0);
+
+// OrbitControls (用于 Orbit 模式)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 0.5;
+controls.maxDistance = 30;
+controls.update();
+
+// 场景元素
+const gridHelper = new THREE.GridHelper(12, 24, 0x333355, 0x222244);
+scene.add(gridHelper);
+
+scene.add(new THREE.AmbientLight(0x404060, 2));
+const keyLight = new THREE.DirectionalLight(0xffffff, 3);
+keyLight.position.set(5, 8, 3);
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0x8888ff, 1);
+fillLight.position.set(-3, 1, -2);
+scene.add(fillLight);
+const rimLight = new THREE.DirectionalLight(0xff8866, 1.5);
+rimLight.position.set(0, 2, -5);
+scene.add(rimLight);
+
+// 模型容器
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+
+// 轨迹可视化
+const trajectoryGroup = new THREE.Group();
+trajectoryGroup.visible = false;
+scene.add(trajectoryGroup);
+
+function clearTrajectory() {
+  while (trajectoryGroup.children.length > 0) {
+    const c = trajectoryGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    trajectoryGroup.remove(c);
+  }
+}
+
+function drawTrajectory(keyframes) {
+  clearTrajectory();
+  if (keyframes.length < 2) { trajectoryGroup.visible = false; return; }
+  trajectoryGroup.visible = true;
+
+  // 采样点
+  const pts = keyframes.map(kf => new THREE.Vector3(kf.pos[0], kf.pos[1], kf.pos[2]));
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+  const sampled = curve.getPoints(keyframes.length * 20);
+
+  const lineGeom = new THREE.BufferGeometry().setFromPoints(sampled);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.6 });
+  trajectoryGroup.add(new THREE.Line(lineGeom, lineMat));
+
+  // 关键帧球体
+  const sphereGeom = new THREE.SphereGeometry(0.08, 8, 8);
+  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+  keyframes.forEach(kf => {
+    const dot = new THREE.Mesh(sphereGeom, sphereMat);
+    dot.position.set(kf.pos[0], kf.pos[1], kf.pos[2]);
+    trajectoryGroup.add(dot);
+  });
+}
+
+// Ghost 预览相机
+let ghostCamera = null;
+function showGhostCamera(pos, quat) {
+  if (!ghostCamera) {
+    const geom = new THREE.ConeGeometry(0.15, 0.4, 4, 4);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.7, wireframe: true });
+    ghostCamera = new THREE.Mesh(geom, mat);
+    scene.add(ghostCamera);
+  }
+  ghostCamera.position.copy(pos);
+  ghostCamera.quaternion.copy(quat);
+  ghostCamera.visible = true;
+  // 让锥体指向相机前方 (Three.js 默认锥体朝上，需要旋转)
+  ghostCamera.rotation.set(0, 0, 0);
+  ghostCamera.rotateX(-Math.PI / 2);
+  ghostCamera.quaternion.multiply(quat);
+}
+
+function hideGhostCamera() {
+  if (ghostCamera) ghostCamera.visible = false;
+}
+
+// ============================================================
+// GLB 加载
+// ============================================================
+const loader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+loader.setDRACOLoader(dracoLoader);
+
+function clearModel() {
+  while (modelGroup.children.length > 0) {
+    const c = modelGroup.children[0];
+    c.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+        else child.material.dispose();
+      }
+    });
+    modelGroup.remove(c);
+  }
+}
+
+function normalizeModel(gltf) {
+  const box = new THREE.Box3().setFromObject(gltf.scene);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  if (maxDim > 0) {
+    const scale = 3.0 / maxDim;
+    gltf.scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+    gltf.scene.scale.setScalar(scale);
+  }
+
+  // 确保所有 mesh 有阴影
+  gltf.scene.traverse(child => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+}
+
+async function loadGLB(url) {
+  clearModel();
+  try {
+    const gltf = await loader.loadAsync(url);
+    normalizeModel(gltf);
+    modelGroup.add(gltf.scene);
+    document.getElementById('scene-status').innerHTML = '<span class="ok">场景已加载</span>';
+    updateSceneInfo();
+    return true;
+  } catch (e) {
+    document.getElementById('scene-status').innerHTML = `<span class="err">加载失败: ${e.message}</span>`;
+    return false;
+  }
+}
+
+// ============================================================
+// Camera Mode System (复用现有物理+摇杆逻辑)
+// ============================================================
+let camMode = 'orbit';
+const DEADZONE = 0.10;
+const STICK_POWER = 2.5;
+const ACCEL = 4.0;
+const DECEL = 7.0;
+const MOVE_SPEED = 4.0;
+const LOOK_SPEED = 1.8;
+const THRUST_SPEED = 3.0;
+const MOUSE_SENSITIVITY = 0.002;
+
+const velMove = new THREE.Vector3();
+const velLook = new THREE.Vector2();
+const keys = {};
+let pointerLocked = false;
+let gamepadConnected = false;
+let lastGamepadButtons = {};
+
+function stickCurve(gp, idx) {
+  const raw = gp.axes[idx] || 0;
+  const abs = Math.abs(raw);
+  if (abs < DEADZONE) return 0;
+  const norm = (abs - DEADZONE) / (1 - DEADZONE);
+  return Math.sign(raw) * Math.pow(norm, STICK_POWER);
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function updateVelocity(dt) {
+  const targetMove = new THREE.Vector3();
+  const targetLook = new THREE.Vector2();
+
+  const gp = pollGamepad();
+  if (gp) readGamepadTarget(gp, targetMove, targetLook);
+  if (camMode !== 'orbit') readKeyboardTarget(targetMove, targetLook);
+
+  const t = dt * (targetMove.length() > 0.01 ? ACCEL : DECEL);
+  velMove.lerp(targetMove, Math.min(t, 1));
+
+  const tl = dt * (targetLook.length() > 0.01 ? ACCEL : DECEL);
+  velLook.x = lerp(velLook.x, targetLook.x, Math.min(tl, 1));
+  velLook.y = lerp(velLook.y, targetLook.y, Math.min(tl, 1));
+
+  if (velMove.length() > 0.0005) {
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+    if (camMode === 'fps') { fwd.y = 0; fwd.normalize(); right.y = 0; right.normalize(); }
+
+    const localMove = new THREE.Vector3()
+      .addScaledVector(right, velMove.x)
+      .addScaledVector(new THREE.Vector3(0, 1, 0), velMove.y)
+      .addScaledVector(fwd, velMove.z);
+
+    camera.position.addScaledVector(localMove, dt);
+  }
+
+  if (Math.abs(velLook.x) > 0.0002 || Math.abs(velLook.y) > 0.0002) {
+    if (camMode === 'drone') {
+      camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -velLook.x * dt);
+      camera.rotateX(velLook.y * dt);
+    } else {
+      camera.rotateY(-velLook.x * dt);
+      camera.rotateX(velLook.y * dt);
+    }
+  }
+}
+
+function readGamepadTarget(gp, targetMove, targetLook) {
+  if (btnJustPressed(gp, 8)) {
+    const modes = ['orbit', 'drone', 'fps'];
+    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
+  }
+  if (camMode === 'drone') {
+    targetMove.y = -stickCurve(gp, 1) * THRUST_SPEED;
+    targetLook.x = stickCurve(gp, 0) * LOOK_SPEED;
+    targetLook.y = -stickCurve(gp, 3) * LOOK_SPEED;
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (rt > 0.1) targetMove.z = rt * MOVE_SPEED;
+  }
+  if (camMode === 'fps') {
+    targetMove.x = stickCurve(gp, 0) * MOVE_SPEED;
+    targetMove.z = -stickCurve(gp, 1) * MOVE_SPEED;
+    targetLook.x = stickCurve(gp, 2) * LOOK_SPEED;
+    targetLook.y = -stickCurve(gp, 3) * LOOK_SPEED;
+    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    if (lt > 0.1) targetMove.y = -lt * THRUST_SPEED;
+    if (rt > 0.1) targetMove.y = rt * THRUST_SPEED;
+  }
+  if (camMode !== 'orbit') {
+    if (btnJustPressed(gp, 0)) captureKeyframe();
+  }
+}
+
+function readKeyboardTarget(targetMove, targetLook) {
+  const spd = MOVE_SPEED;
+  const lspd = LOOK_SPEED;
+  if (keys['KeyW']) targetMove.z = spd;
+  if (keys['KeyS']) targetMove.z = -spd;
+  if (keys['KeyA']) camMode === 'drone' ? (targetLook.x = lspd * 1.5) : (targetMove.x = -spd);
+  if (keys['KeyD']) camMode === 'drone' ? (targetLook.x = -lspd * 1.5) : (targetMove.x = spd);
+  if (keys['ControlLeft'] || keys['ControlRight']) targetMove.y = -THRUST_SPEED;
+  if (keys['KeyE'] || keys['Space']) targetMove.y = THRUST_SPEED;
+  if (camMode === 'drone') {
+    if (keys['ArrowUp']) targetLook.y = lspd;
+    if (keys['ArrowDown']) targetLook.y = -lspd;
+    if (keys['ArrowLeft']) targetLook.x = lspd;
+    if (keys['ArrowRight']) targetLook.x = -lspd;
+  } else {
+    if (keys['ArrowUp']) targetLook.y = lspd;
+    if (keys['ArrowDown']) targetLook.y = -lspd;
+    if (keys['ArrowLeft']) targetLook.x = lspd;
+    if (keys['ArrowRight']) targetLook.x = -lspd;
+  }
+  if (keys['ShiftLeft'] || keys['ShiftRight']) { targetMove.z = spd * 3; }
+}
+
+function pollGamepad() {
+  const pads = navigator.getGamepads();
+  for (const p of pads) { if (p) return p; }
+  return null;
+}
+
+function btnJustPressed(gp, idx) {
+  const pressed = gp.buttons[idx] && gp.buttons[idx].pressed;
+  const was = lastGamepadButtons[idx] || false;
+  lastGamepadButtons[idx] = pressed;
+  return pressed && !was;
+}
+
+window.setMode = function(mode) {
+  camMode = mode;
+  document.getElementById('btn-orbit').classList.toggle('active', mode === 'orbit');
+  document.getElementById('btn-drone').classList.toggle('active', mode === 'drone');
+  document.getElementById('btn-fps').classList.toggle('active', mode === 'fps');
+  document.getElementById('hud-mode').textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+  document.getElementById('instr-orbit').style.display = mode === 'orbit' ? '' : 'none';
+  document.getElementById('instr-fly').style.display = mode !== 'orbit' ? '' : 'none';
+  controls.enabled = mode === 'orbit';
+  velMove.set(0, 0, 0);
+  velLook.set(0, 0);
+  if (mode !== 'orbit') {
+    controls.target.copy(camera.position).add(
+      new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+    );
+  }
+};
+
+// 键盘事件
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  keys[e.code] = true;
+  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); captureKeyframe(); }
+  if (e.code === 'KeyP' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); previewPath(); }
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    const modes = ['orbit', 'drone', 'fps'];
+    setMode(modes[(modes.indexOf(camMode) + 1) % 3]);
+  }
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+// 鼠标锁定
+canvas.addEventListener('click', () => {
+  if (camMode !== 'orbit' && !pointerLocked) {
+    canvas.requestPointerLock();
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+document.addEventListener('mousemove', (e) => {
+  if (!pointerLocked || camMode === 'orbit') return;
+  velLook.x += e.movementX * MOUSE_SENSITIVITY * LOOK_SPEED * 30;
+  velLook.y += e.movementY * MOUSE_SENSITIVITY * LOOK_SPEED * 30;
+});
+
+// ============================================================
+// API Client
+// ============================================================
+const API = window.location.origin;
+let apiOk = false;
+
+async function apiCall(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(`${API}${path}`, opts);
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || r.statusText);
+  }
+  return r.json();
+}
+
+async function checkAPI() {
+  try {
+    const r = await fetch(`${API}/health`);
+    const d = await r.json();
+    apiOk = d.status === 'ok';
+    document.getElementById('api-status').innerHTML =
+      `API: <span class="ok">${d.render_mode}</span> (${d.platform})`;
+  } catch {
+    document.getElementById('api-status').innerHTML = 'API: <span class="err">离线</span>';
+  }
+}
+checkAPI();
+setInterval(checkAPI, 5000);
+
+// ============================================================
+// 3D 生成
+// ============================================================
+let currentSceneId = null;
+
+window.generateScene = async function() {
+  const prompt = document.getElementById('prompt-input').value.trim();
+  if (!prompt) { toast('请输入 prompt'); return; }
+  if (!apiOk) { toast('API 离线，请先启动后端'); return; }
+
+  const btn = document.getElementById('btn-generate');
+  const prog = document.getElementById('gen-progress');
+  const bar = document.getElementById('gen-bar');
+  const elapsed = document.getElementById('gen-elapsed');
+
+  btn.disabled = true;
+  btn.textContent = '提交中...';
+  prog.style.display = 'block';
+  bar.style.width = '5%';
+
+  try {
+    const result = await apiCall('POST', '/api/scenes/generate', { prompt });
+    currentSceneId = result.id;
+    document.getElementById('scene-status').innerHTML =
+      `场景: <span class="warn">生成中 (${result.id})</span>`;
+    elapsed.textContent = '任务已提交，等待 Meshy 返回...';
+    bar.style.width = '10%';
+
+    // 轮询状态
+    let start = Date.now();
+    btn.textContent = '生成中...';
+
+    const poll = setInterval(async () => {
+      try {
+        const s = await apiCall('POST', `/api/scenes/${currentSceneId}/check`);
+        const secs = Math.floor((Date.now() - start) / 1000);
+        elapsed.textContent = `生成中... ${secs}s`;
+
+        if (s.progress) {
+          bar.style.width = Math.min(s.progress, 90) + '%';
+        }
+
+        if (s.status === 'ready') {
+          clearInterval(poll);
+          bar.style.width = '100%';
+          elapsed.textContent = `完成 (${secs}s)`;
+          btn.textContent = 'AI 生成 3D 场景';
+          btn.disabled = false;
+          document.getElementById('scene-status').innerHTML =
+            '<span class="ok">场景就绪</span>';
+
+          if (s.model_url) {
+            await loadGLB(API + s.model_url);
+          }
+          setTimeout(() => { prog.style.display = 'none'; }, 2000);
+        } else if (s.status === 'failed') {
+          clearInterval(poll);
+          elapsed.textContent = `失败: ${s.error || '未知错误'}`;
+          btn.textContent = 'AI 生成 3D 场景';
+          btn.disabled = false;
+          document.getElementById('scene-status').innerHTML =
+            `<span class="err">生成失败</span>`;
+        }
+      } catch (e) {
+        clearInterval(poll);
+        btn.textContent = 'AI 生成 3D 场景';
+        btn.disabled = false;
+        prog.style.display = 'none';
+        toast(`轮询失败: ${e.message}`);
+      }
+    }, 3000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'AI 生成 3D 场景';
+    prog.style.display = 'none';
+    toast(`提交失败: ${e.message}`);
+  }
+};
+
+// ============================================================
+// 关键帧录制
+// ============================================================
+let keyframes = [];  // [{t: float, pos: [x,y,z], quat: [x,y,z,w], fov: float}]
+
+function getPose() {
+  return {
+    pos: [camera.position.x, camera.position.y, camera.position.z],
+    quat: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w],
+    fov: camera.fov,
+  };
+}
+
+function updateHUD() {
+  const p = camera.position;
+  const q = camera.quaternion;
+  document.getElementById('hud-pos').textContent =
+    `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
+  document.getElementById('hud-quat').textContent =
+    `${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.z.toFixed(3)}, ${q.w.toFixed(3)}`;
+}
+
+window.captureKeyframe = function() {
+  if (!currentSceneId) { toast('请先生成或加载一个 3D 场景'); return; }
+  const t = keyframes.length > 0 ? keyframes[keyframes.length - 1].t + 1.0 : 0.0;
+  const pose = getPose();
+  keyframes.push({ t, ...pose });
+  refreshKFList();
+  toast(`关键帧 ${keyframes.length}: t=${t.toFixed(1)}s`);
+};
+
+window.undoKeyframe = function() {
+  keyframes.pop();
+  refreshKFList();
+};
+
+function refreshKFList() {
+  const container = document.getElementById('kf-list');
+  const countEl = document.getElementById('kf-count');
+  countEl.textContent = `${keyframes.length} 关键帧`;
+  container.innerHTML = keyframes.map((kf, i) =>
+    `<div class="kf-item" onclick="goToKeyframe(${i})">
+      <span>#${i+1} t=${kf.t.toFixed(1)}s</span>
+      <span class="del" onclick="event.stopPropagation(); deleteKF(${i})">x</span>
+    </div>`
+  ).join('');
+  drawTrajectory(keyframes);
+}
+
+window.deleteKF = function(i) {
+  keyframes.splice(i, 1);
+  refreshKFList();
+};
+
+window.goToKeyframe = function(i) {
+  const kf = keyframes[i];
+  camera.position.set(kf.pos[0], kf.pos[1], kf.pos[2]);
+  camera.quaternion.set(kf.quat[0], kf.quat[1], kf.quat[2], kf.quat[3]);
+  camera.fov = kf.fov;
+  camera.updateProjectionMatrix();
+  if (camMode === 'orbit') {
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    controls.target.copy(camera.position).add(fwd);
+    controls.update();
+  }
+};
+
+// ============================================================
+// Catmull-Rom 插值采样
+// ============================================================
+function samplePath(keyframes, time) {
+  if (keyframes.length === 0) return null;
+  if (keyframes.length === 1) {
+    const k = keyframes[0];
+    return { pos: new THREE.Vector3(...k.pos), quat: new THREE.Quaternion(...k.quat), fov: k.fov };
+  }
+
+  // 找到 time 所在区段
+  let i = 0;
+  for (; i < keyframes.length - 2; i++) {
+    if (keyframes[i + 1].t > time) break;
+  }
+  if (time >= keyframes[keyframes.length - 1].t) {
+    i = keyframes.length - 2;
+  }
+
+  const k0 = keyframes[Math.max(0, i - 1)];
+  const k1 = keyframes[i];
+  const k2 = keyframes[Math.min(keyframes.length - 1, i + 1)];
+  const k3 = keyframes[Math.min(keyframes.length - 1, i + 2)];
+
+  const segStart = k1.t;
+  const segEnd = k2.t;
+  const segLen = segEnd - segStart || 0.001;
+  const localT = Math.max(0, Math.min(1, (time - segStart) / segLen));
+
+  // Catmull-Rom 位置插值
+  const p0 = new THREE.Vector3(...k0.pos);
+  const p1 = new THREE.Vector3(...k1.pos);
+  const p2 = new THREE.Vector3(...k2.pos);
+  const p3 = new THREE.Vector3(...k3.pos);
+
+  const t = localT;
+  const tt = t * t;
+  const ttt = tt * t;
+  const pos = new THREE.Vector3()
+    .addScaledVector(p0, 0.5 * (-ttt + 2*tt - t))
+    .addScaledVector(p1, 0.5 * (3*ttt - 5*tt + 2))
+    .addScaledVector(p2, 0.5 * (-3*ttt + 4*tt + t))
+    .addScaledVector(p3, 0.5 * (ttt - tt));
+
+  // Slerp 旋转
+  const q1 = new THREE.Quaternion(...k1.quat);
+  const q2 = new THREE.Quaternion(...k2.quat);
+  const quat = q1.clone().slerp(q2, localT);
+
+  // 线性 FOV
+  const fov = k1.fov + (k2.fov - k1.fov) * localT;
+
+  return { pos, quat, fov };
+}
+
+// ============================================================
+// Camera Path 管理
+// ============================================================
+window.savePath = async function() {
+  if (!currentSceneId) { toast('请先生成或加载场景'); return; }
+  if (keyframes.length < 2) { toast('至少需要 2 个关键帧'); return; }
+  const name = document.getElementById('path-name').value.trim() || 'Untitled';
+  const totalDuration = keyframes[keyframes.length - 1].t;
+
+  try {
+    const result = await apiCall('POST', '/api/camera-paths', {
+      scene_id: currentSceneId,
+      name,
+      duration: totalDuration,
+      fps: 24,
+      camera_mode: camMode,
+      interpolation: 'catmull-rom',
+      keyframes,
+    });
+    toast(`运镜已保存: ${name}`);
+    refreshPathList();
+  } catch (e) {
+    toast(`保存失败: ${e.message}`);
+  }
+};
+
+async function refreshPathList() {
+  if (!currentSceneId) return;
+  try {
+    const data = await apiCall('GET', `/api/camera-paths?scene_id=${currentSceneId}`);
+    const select = document.getElementById('path-select');
+    select.innerHTML = '<option value="">-- 选择运镜 --</option>';
+    data.paths.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.name} (${p.keyframes.length} 帧, ${p.duration.toFixed(1)}s)`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+window.loadPathFromSelect = function() {
+  const id = document.getElementById('path-select').value;
+  if (!id) return;
+  loadPath(id);
+};
+
+async function loadPath(id) {
+  try {
+    const path = await apiCall('GET', `/api/camera-paths/${id}`);
+    keyframes = path.keyframes;
+    document.getElementById('path-name').value = path.name;
+    document.getElementById('path-select').value = path.id;
+    refreshKFList();
+    toast(`已加载: ${path.name}`);
+  } catch (e) {
+    toast(`加载失败: ${e.message}`);
+  }
+}
+
+window.loadPath = loadPath;
+
+// ============================================================
+// 预览运镜
+// ============================================================
+let previewAnimating = false;
+let previewRAF = null;
+
+window.previewPath = function() {
+  if (keyframes.length < 2) { toast('至少需要 2 个关键帧才能预览'); return; }
+  if (previewAnimating) { stopPreview(); return; }
+
+  previewAnimating = true;
+  const totalDuration = keyframes[keyframes.length - 1].t;
+  const startTime = performance.now();
+
+  function animatePreview(now) {
+    const elapsed = (now - startTime) / 1000;
+    const time = elapsed % totalDuration;
+    const sample = samplePath(keyframes, time);
+
+    if (sample) {
+      camera.position.copy(sample.pos);
+      camera.quaternion.copy(sample.quat);
+      camera.fov = sample.fov;
+      camera.updateProjectionMatrix();
+      showGhostCamera(sample.pos, sample.quat);
+    }
+
+    if (previewAnimating) {
+      previewRAF = requestAnimationFrame(animatePreview);
+    }
+  }
+
+  previewRAF = requestAnimationFrame(animatePreview);
+  toast('预览中... 按 P 停止');
+};
+
+function stopPreview() {
+  previewAnimating = false;
+  if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; }
+  hideGhostCamera();
+}
+
+// ============================================================
+// 视频渲染
+// ============================================================
+window.renderVideo = async function() {
+  if (!currentSceneId) { toast('请先生成或加载场景'); return; }
+  if (!apiOk) { toast('API 离线'); return; }
+
+  const prompt = document.getElementById('render-prompt').value.trim();
+  if (!prompt) { toast('请输入渲染 prompt'); return; }
+
+  // 如果没有录制关键帧，用当前相机位置
+  let frames = keyframes;
+  if (frames.length === 0) {
+    const pose = getPose();
+    frames = [{ t: 0, ...pose }, { t: 2, ...pose }];
+  }
+
+  // 先通过旧 API 创建场景 + 录制帧
+  const sceneId = currentSceneId || 'test_scene';
+  try {
+    await apiCall('POST', `/scene/create?scene_id=${sceneId}`);
+    for (let i = 0; i < frames.length; i++) {
+      const kf = frames[i];
+      await apiCall('POST', '/camera/record_frame', {
+        scene_id: sceneId,
+        frame_id: i,
+        camera_pose: {
+          position: { x: kf.pos[0], y: kf.pos[1], z: kf.pos[2] },
+          rotation: { x: kf.quat[0], y: kf.quat[1], z: kf.quat[2], w: kf.quat[3] },
+        },
+      });
+    }
+
+    const result = await apiCall('POST', '/render/video', {
+      scene_id: sceneId,
+      prompt,
+      fps: 24,
+      interpolation: 3,
+      conditioning_scale: 1.7,
+      num_steps: 25,
+      seed: Math.floor(Math.random() * 9999),
+    });
+
+    toast(`视频已生成: ${result.video_url}`);
+    window.open(API + result.video_url, '_blank');
+  } catch (e) {
+    toast(`渲染失败: ${e.message}`);
+  }
+};
+
+// ============================================================
+// 场景信息
+// ============================================================
+function updateSceneInfo() {
+  if (!currentSceneId) return;
+  document.getElementById('scene-status').innerHTML =
+    `<span class="ok">场景: ${currentSceneId}</span>`;
+  refreshPathList();
+}
+
+// ============================================================
+// Toast
+// ============================================================
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ============================================================
+// Render Loop
+// ============================================================
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+
+  if (camMode === 'orbit') {
+    controls.update();
+  } else if (!previewAnimating) {
+    updateVelocity(dt);
+  }
+
+  updateHUD();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================
+// 初始加载：尝试加载已存在的场景
+// ============================================================
+(async function init() {
+  try {
+    const data = await apiCall('GET', '/api/scenes?status=ready');
+    if (data.scenes && data.scenes.length > 0) {
+      const latest = data.scenes[0];
+      currentSceneId = latest.id;
+      document.getElementById('prompt-input').value = latest.user_prompt;
+      if (latest.model_url) {
+        await loadGLB(API + latest.model_url);
+      }
+      updateSceneInfo();
+    }
+  } catch (e) {
+    // 首次启动没有场景是正常的
+  }
+})();
+</script>
+</body>
+</html>
