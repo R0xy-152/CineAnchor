@@ -260,6 +260,7 @@
   <button class="btn-depth" onclick="renderDepthMaps()" style="width:100%">渲染深度图</button>
   <div id="depth-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
   <button class="btn-render" onclick="renderVideo()" style="margin-top:4px;width:100%">预览深度序列</button>
+  <button class="btn-secondary" onclick="showDemoResult()" style="margin-top:4px;width:100%;color:#4ade80;border-color:rgba(74,222,128,0.3)">▶ 观看 AI 渲染示例</button>
 
   <div id="status-bar">
     <div id="api-status">API: 检测中...</div>
@@ -318,20 +319,28 @@
 
 <!-- Depth Video Modal -->
 <div id="depth-video-modal">
-  <div style="background:rgba(20,20,30,0.96);border-radius:12px;padding:24px;max-width:640px;text-align:center">
-    <h3 style="color:#fff;margin-bottom:8px">深度序列预览</h3>
-    <p style="color:#888;font-size:12px;margin-bottom:12px" id="depth-video-info"></p>
-    <div style="width:512px;height:384px;background:#000;border-radius:8px;margin:0 auto;overflow:hidden;position:relative">
-      <canvas id="depth-video-canvas" width="512" height="384" style="width:100%;height:100%"></canvas>
+  <div style="background:rgba(20,20,30,0.96);border-radius:12px;padding:24px;max-width:680px;text-align:center">
+    <h3 style="color:#fff;margin-bottom:4px">渲染预览</h3>
+
+    <!-- 深度序列播放器 -->
+    <p style="color:#888;font-size:11px;margin-bottom:8px" id="depth-video-info"></p>
+    <div style="width:512px;height:320px;background:#000;border-radius:8px;margin:0 auto;overflow:hidden;position:relative">
+      <canvas id="depth-video-canvas" width="512" height="320" style="width:100%;height:100%"></canvas>
       <div id="depth-video-fps" style="position:absolute;bottom:4px;right:8px;color:#4ade80;font-size:10px;font-family:monospace"></div>
     </div>
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
       <button class="btn-primary" onclick="toggleDepthVideo()" id="btn-depth-play" style="width:auto;padding:6px 20px">播放</button>
       <button class="btn-secondary" onclick="closeDepthVideo()" style="width:auto;padding:6px 20px">关闭</button>
     </div>
-    <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:11px;color:#fbbf24;line-height:1.5">
-      深度图是 AI 视频生成的几何约束输入。<br>
-      AI 风格化渲染 (ControlNet+AnimateDiff) 需要 NVIDIA GPU，在 Windows 工作站执行。
+
+    <!-- AI 渲染示例 -->
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08)">
+      <h4 style="color:#4ade80;font-size:13px;margin-bottom:6px">AI 渲染结果示例</h4>
+      <p style="color:#666;font-size:10px;margin-bottom:8px">ControlNet-Depth + AnimateDiff · NVIDIA GPU 渲染</p>
+      <video id="demo-video-player" controls loop muted
+             style="width:100%;max-width:512px;height:auto;border-radius:8px;background:#000"
+             src="/static/demo_output.mp4">
+      </video>
     </div>
   </div>
 </div>
@@ -1743,6 +1752,16 @@ window.closeDepthVideo = function() {
   depthVideoPlaying = false;
   if (depthVideoRAF) cancelAnimationFrame(depthVideoRAF);
   document.getElementById('depth-video-modal').style.display = 'none';
+  const demoVid = document.getElementById('demo-video-player');
+  if (demoVid) demoVid.pause();
+};
+
+window.showDemoResult = function() {
+  document.getElementById('depth-video-info').textContent = 'AI 渲染结果示例 (Windows GPU)';
+  document.getElementById('depth-video-modal').style.display = 'flex';
+  document.getElementById('depth-video-canvas').style.display = 'none';
+  document.getElementById('depth-video-fps').style.display = 'none';
+  document.getElementById('btn-depth-play').style.display = 'none';
 };
 
 // 深度序列渲染按钮
