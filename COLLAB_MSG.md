@@ -1501,3 +1501,28 @@ git push
 ```
 
 ---
+
+### [2026-05-23 任务包 #4 完成 ✅ — 小win]
+
+**批量 AI 视频生成，5 场景全部完成：**
+
+| 场景 | AnimateDiff | RGB帧 | RAFT插值 | 视频大小 | 推理耗时 |
+|------|-------------|-------|-----------|----------|----------|
+| `zen_garden` | ✅ OK | 16→46 | 3x | 2173 KB | ~2m46s |
+| `scifi_corridor` | ✅ OK | 16→46 | 3x | 1107 KB | ~2m43s |
+| `floating_islands` | ✅ OK | 16→46 | 3x | 1514 KB | ~2m40s |
+| `desert_ruins` | ✅ OK | 16→46 | 3x | 1539 KB | ~2m39s |
+| `forest_glade` | ✅ OK | 16→46 | 3x | 2067 KB | ~2m39s |
+
+**配置：** SD 1.5 + AnimateDiff + RAFT, scale=1.7, seed=42, steps=25, 24fps
+
+**注意：**
+- AnimateDiff 帧预算限制为 16 帧（从 24 源帧采样），非全部 24 帧
+- RAFT 3x 插值后输出 46 帧（16→46），约 2 秒 @ 24fps
+- HuggingFace 离线模式 (`HF_HUB_OFFLINE=1`) 绕过 SSL 连接问题
+- 所有场景 AnimateDiff 均一次性跑通，无需逐帧 fallback
+- CUDA RTX 4060 稳定运行，无 OOM / 热节流
+
+**代码已推送：** `fdacf77` on main
+
+---
