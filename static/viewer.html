@@ -194,6 +194,14 @@
   <label>Prompt (描述你想要的 3D 场景)</label>
   <textarea id="prompt-input" placeholder="例如: a medieval castle on a hill, surrounded by pine trees, fantasy style">a cozy japanese zen garden with a wooden bridge over a pond, cherry blossom trees</textarea>
   <button class="btn-generate" id="btn-generate" onclick="generateScene()">AI 生成 3D 场景</button>
+  <div id="scene-presets" style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:4px">
+    <button class="btn-preset" onclick="switchScene('日式禅园')" title="日式禅园, 枯山水">🎋 禅园</button>
+    <button class="btn-preset" onclick="switchScene('科幻走廊')" title="霓虹科幻走廊">🔮 科幻</button>
+    <button class="btn-preset" onclick="switchScene('浮岛仙境')" title="漂浮岛屿, 瀑布">🏝 浮岛</button>
+    <button class="btn-preset" onclick="switchScene('沙漠遗迹')" title="金字塔, 烈日">🏜 沙漠</button>
+    <button class="btn-preset" onclick="switchScene('森林空地')" title="阳光森林">🌲 森林</button>
+    <button class="btn-preset" onclick="switchScene('')" style="font-size:9px" title="输入 Prompt 自定义场景">✏️ 自定义</button>
+  </div>
   <div id="gen-progress">
     <div class="bar-bg"><div class="bar-fill" id="gen-bar"></div></div>
     <div class="elapsed" id="gen-elapsed"></div>
@@ -747,6 +755,17 @@ setInterval(checkAPI, 5000);
 // 3D 生成
 // ============================================================
 let currentSceneId = null;
+
+window.switchScene = function(prompt) {
+  if (prompt) {
+    document.getElementById('prompt-input').value = prompt;
+    generateScene();
+  } else {
+    document.getElementById('prompt-input').value = '';
+    document.getElementById('prompt-input').focus();
+    toast('输入自定义 Prompt 后点击生成');
+  }
+};
 
 window.generateScene = async function() {
   const prompt = document.getElementById('prompt-input').value.trim();
