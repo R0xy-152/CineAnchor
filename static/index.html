@@ -116,13 +116,14 @@
 
 <!-- Hero -->
 <section class="hero">
-  <h1><span>CineAnchor</span> — AI 3D 场景导演工具</h1>
+  <h1><span>AnchorVerse</span> — AI 创造你的社交世界</h1>
   <p class="subtitle">
     一句话生成 3D 场景 → 走进去自由探索 → 设计摄像机运镜 → AI 渲染成电影级视频。
     不需要学 Blender，不需要写代码，整个流程在网页里完成。
   </p>
   <div class="cta-group">
     <a href="/static/viewer.html?demo=1" class="btn-primary">Demo 快速体验</a>
+    <a href="/static/multiplayer/world.html" class="btn-primary" style="background:#16a34a">🌐 进入多人世界</a>
     <a href="/static/viewer.html" class="btn-secondary">进入取景器</a>
     <a href="#how-it-works" class="btn-secondary">了解工作原理</a>
   </div>
@@ -211,18 +212,21 @@
     const grid = document.getElementById('scenes-grid');
     if (data.scenes && data.scenes.length > 0) {
       grid.innerHTML = data.scenes.map(s => `
-        <a class="work-card" href="/static/viewer.html">
-          <div class="thumb">
-            ${s.thumbnail_path
-              ? `<img src="${s.thumbnail_path.replace('/Users/ming/Projects/CineAnchor/', '/')}" alt="">`
-              : '<span style="font-size:40px">🎬</span>'}
-          </div>
+        <div class="work-card">
+          <a href="/static/multiplayer/world.html?scene=${s.id}" style="display:block; text-decoration:none; color:inherit">
+            <div class="thumb">
+              ${s.thumbnail_path
+                ? `<img src="${s.thumbnail_path.replace('/Users/ming/Projects/CineAnchor/', '/')}" alt="">`
+                : '<span style="font-size:40px">🎬</span>'}
+            </div>
+          </a>
           <div class="info">
-            <h4>${s.id}</h4>
-            <p class="prompt">${s.user_prompt}</p>
-            <p class="meta">${s.status} · ${new Date(s.created_at).toLocaleDateString('zh-CN')}</p>
+            <h4>${s.user_prompt?.slice(0, 40) || s.id}</h4>
+            <p class="prompt">${s.template || '自定义'} · ${s.status}</p>
+            <p class="meta">${new Date(s.created_at).toLocaleDateString('zh-CN')}</p>
+            <a href="/static/multiplayer/world.html?scene=${s.id}" class="btn-room" style="display:block;text-align:center;padding:6px;margin-top:8px;border-radius:6px;border:1px solid #7c3aed;color:#7c3aed;font-size:12px;text-decoration:none">进入世界 →</a>
           </div>
-        </a>
+        </div>
       `).join('');
     }
   } catch (e) {
