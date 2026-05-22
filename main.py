@@ -19,6 +19,7 @@ from app.camera_path import (
     save_camera_path, get_camera_path, list_camera_paths, delete_camera_path
 )
 from app.depth_renderer import render_depth_maps
+from app.camera_presets import list_presets
 
 # --- 初始化数据库 ---
 init_db()
@@ -319,6 +320,39 @@ async def api_render_depth(path_id: str):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+# ============================================================
+# Demo / Presets API
+# ============================================================
+@app.get("/api/demo/setup", summary="Demo 模式初始化")
+async def api_demo_setup():
+    """返回已有场景 + Demo 运镜路径，供 Demo 模式一键加载"""
+    scenes = list_scenes("ready")
+    if not scenes:
+        raise HTTPException(status_code=404, detail="没有可用的场景，请先生成一个场景")
+
+    scene = scenes[0]
+    scene_id = scene["id"]
+
+    existing = list_camera_paths(scene_id)
+    demo_paths = [p for p in existing if p.get("name", "").startswith("[Demo]")]
+
+    return {
+        "scene_id": scene_id,
+        "model_url": scene.get("model_url", ""),
+        "scene_prompt": scene.get("user_prompt", ""),
+        "template": scene.get("template", ""),
+        "paths": [
+            {"id": p["id"], "name": p["name"], "keyframe_count": len(p.get("keyframes", []))}
+            for p in demo_paths
+        ],
+    }
+
+
+@app.get("/api/camera-presets", summary="镜头预设列表")
+async def api_list_presets():
+    return {"presets": list_presets()}
 
 
 # --- 运行 ---

@@ -118,6 +118,48 @@
   #timeline-controls .time-display { font-size: 11px; color: #888; margin-left: auto; font-family: monospace; }
   #timeline-canvas { flex: 1; cursor: pointer; }
 
+  /* ---- Presets ---- */
+  .btn-preset {
+    padding: 6px 4px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.03); color: #aaa; font-size: 10px;
+    cursor: pointer; text-align: center; transition: all 0.15s; font-weight: 500;
+  }
+  .btn-preset:hover { background: rgba(124,58,237,0.2); border-color: #7c3aed; color: #fff; }
+  .btn-preset:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ---- Workflow Step ---- */
+  #workflow-step {
+    font-size: 10px; background: #7c3aed; color: #fff; padding: 2px 8px;
+    border-radius: 4px; font-weight: 400; white-space: nowrap;
+  }
+
+  /* ---- Demo Overlay ---- */
+  #demo-overlay {
+    position: fixed; top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.7); z-index: 50;
+    display: none; align-items: center; justify-content: center;
+  }
+  #demo-modal {
+    background: rgba(20,20,30,0.96); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px; padding: 32px; max-width: 420px; color: #ccc; text-align: center;
+  }
+  #demo-modal h2 { color: #fff; font-size: 18px; margin-bottom: 6px; }
+  #demo-modal .demo-subtitle { font-size: 12px; color: #7c3aed; margin-bottom: 18px; }
+  .demo-steps { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+  .demo-step { font-size: 13px; line-height: 1.5; }
+  .demo-step .step-num {
+    display: inline-block; width: 20px; height: 20px;
+    background: #7c3aed; color: #fff; border-radius: 50%;
+    text-align: center; font-size: 11px; line-height: 20px; margin-right: 8px;
+  }
+
+  /* ---- Depth Video Modal ---- */
+  #depth-video-modal {
+    position: fixed; top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.8); z-index: 50;
+    display: none; align-items: center; justify-content: center;
+  }
+
   /* ---- Depth Preview ---- */
   #depth-preview-corner {
     position: fixed; bottom: 90px; right: 320px; width: 256px; height: 160px;
@@ -143,7 +185,10 @@
 
 <!-- Panel -->
 <div id="panel">
-  <h2>CineAnchor 取景器</h2>
+  <h2 style="display:flex;align-items:center;justify-content:space-between">
+    <span>CineAnchor 取景器</span>
+    <span id="workflow-step">步骤 1/4: 场景生成</span>
+  </h2>
 
   <!-- AI 3D 生成 -->
   <label>Prompt (描述你想要的 3D 场景)</label>
@@ -167,6 +212,22 @@
 
   <div class="divider"></div>
 
+  <!-- 镜头预设 -->
+  <label>镜头预设 <span style="color:#888;font-size:10px;font-weight:normal">一键生成专业运镜</span></label>
+  <div id="preset-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
+    <button class="btn-preset" data-preset="nolan_orbit" onclick="applyPreset(this)" title="环绕主体180°, 低角度仰拍">Nolan Orbit</button>
+    <button class="btn-preset" data-preset="anime_closeup" onclick="applyPreset(this)" title="快速推近主体, 微幅晃动">Anime Close-up</button>
+    <button class="btn-preset" data-preset="dolly_reveal" onclick="applyPreset(this)" title="侧向平移, 主体逐渐入画">Dolly Reveal</button>
+    <button class="btn-preset" data-preset="drone_ascend" onclick="applyPreset(this)" title="从地面升到鸟瞰, 向下俯拍">Drone Ascend</button>
+    <button class="btn-preset" data-preset="hero_tracking" onclick="applyPreset(this)" title="低角度跟拍, 后退拉开揭示环境">Hero Tracking</button>
+    <button class="btn-preset" data-preset="suspense_pan" onclick="applyPreset(this)" title="缓慢水平横扫, 悬疑感">Suspense Pan</button>
+    <button class="btn-preset" data-preset="god_eye" onclick="applyPreset(this)" title="极高鸟瞰, 极慢自转">God's Eye</button>
+    <button class="btn-preset" data-preset="whip_pan" onclick="applyPreset(this)" title="快速甩镜, 镜头急转">Whip Pan</button>
+  </div>
+  <div id="preset-desc" style="font-size:10px;color:#888;margin-top:4px;min-height:14px"></div>
+
+  <div class="divider"></div>
+
   <!-- Camera Path 录制 -->
   <label>运镜录制 <span id="kf-count" style="color:#4ade80">0 关键帧</span></label>
   <div id="kf-list"></div>
@@ -187,15 +248,18 @@
   </select>
   <button class="btn-secondary" onclick="previewPath()" style="margin-top:4px">预览运镜 (P)</button>
 
-  <button class="btn-depth" onclick="renderDepthMaps()" style="margin-top:6px;width:100%">渲染深度图</button>
-  <div id="depth-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
-
   <div class="divider"></div>
 
   <!-- 渲染 -->
-  <label>渲染 Prompt</label>
-  <textarea id="render-prompt" placeholder="描述视频画面风格...">a serene japanese garden, cinematic lighting, 8k, photorealistic</textarea>
-  <button class="btn-render" onclick="renderVideo()">生成视频</button>
+  <label>深度图渲染 & AI 视频</label>
+  <div style="font-size:11px;color:#888;margin-bottom:6px;line-height:1.5">
+    步骤 1: 渲染深度图序列 (Blender Cycles)<br>
+    步骤 2: 预览深度序列<br>
+    <span style="color:#fbbf24">AI 风格化渲染需 Windows GPU</span>
+  </div>
+  <button class="btn-depth" onclick="renderDepthMaps()" style="width:100%">渲染深度图</button>
+  <div id="depth-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
+  <button class="btn-render" onclick="renderVideo()" style="margin-top:4px;width:100%">预览深度序列</button>
 
   <div id="status-bar">
     <div id="api-status">API: 检测中...</div>
@@ -211,8 +275,8 @@
 </div>
 
 <div id="instructions">
-  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 捕获关键帧 | P 预览运镜 | Space 播放 | D 深度预览</span>
-  <span id="instr-fly" style="display:none">WASD 移动 | Space/Ctrl 升降 | 鼠标转视角<br>R 捕获关键帧 | P 预览运镜 | D 深度预览</span>
+  <span id="instr-orbit"><span style="color:#7c3aed">Orbit</span> 左键旋转 | 滚轮缩放 | 右键平移<br><span style="color:#888">R</span> 捕获关键帧 <span style="color:#888">P</span> 预览 <span style="color:#888">Space</span> 播放 <span style="color:#888">D</span> 深度 <span style="color:#888">Tab</span> 切模式</span>
+  <span id="instr-fly" style="display:none"><span style="color:#7c3aed">飞行</span> <span style="color:#888">WASD</span> 移动 <span style="color:#888">Space/Ctrl</span> 升降 | 鼠标转视角<br><span style="color:#888">R</span> 捕获关键帧 <span style="color:#888">P</span> 预览 <span style="color:#888">D</span> 深度 <span style="color:#888">Tab</span> 切模式</span>
 </div>
 
 <!-- Timeline -->
@@ -237,6 +301,41 @@
 
 <canvas id="canvas"></canvas>
 
+<!-- Demo Overlay -->
+<div id="demo-overlay">
+  <div id="demo-modal">
+    <h2>欢迎体验 CineAnchor</h2>
+    <p class="demo-subtitle">场景已自动加载，4 步体验 AI 导演工作流</p>
+    <div class="demo-steps">
+      <div class="demo-step"><span class="step-num">1</span> 用鼠标/键盘在 <strong>3D 场景</strong> 中自由探索</div>
+      <div class="demo-step"><span class="step-num">2</span> 切换 <strong>Orbit / Drone / FPS</strong> 相机模式</div>
+      <div class="demo-step"><span class="step-num">3</span> 点击 <strong>镜头预设</strong> 或手动录制运镜</div>
+      <div class="demo-step"><span class="step-num">4</span> 渲染深度图 → 预览深度序列</div>
+    </div>
+    <button onclick="closeDemoOverlay()" class="btn-generate" style="margin-top:16px;width:auto;padding:10px 32px">开始体验</button>
+  </div>
+</div>
+
+<!-- Depth Video Modal -->
+<div id="depth-video-modal">
+  <div style="background:rgba(20,20,30,0.96);border-radius:12px;padding:24px;max-width:640px;text-align:center">
+    <h3 style="color:#fff;margin-bottom:8px">深度序列预览</h3>
+    <p style="color:#888;font-size:12px;margin-bottom:12px" id="depth-video-info"></p>
+    <div style="width:512px;height:384px;background:#000;border-radius:8px;margin:0 auto;overflow:hidden;position:relative">
+      <canvas id="depth-video-canvas" width="512" height="384" style="width:100%;height:100%"></canvas>
+      <div id="depth-video-fps" style="position:absolute;bottom:4px;right:8px;color:#4ade80;font-size:10px;font-family:monospace"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+      <button class="btn-primary" onclick="toggleDepthVideo()" id="btn-depth-play" style="width:auto;padding:6px 20px">播放</button>
+      <button class="btn-secondary" onclick="closeDepthVideo()" style="width:auto;padding:6px 20px">关闭</button>
+    </div>
+    <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:11px;color:#fbbf24;line-height:1.5">
+      深度图是 AI 视频生成的几何约束输入。<br>
+      AI 风格化渲染 (ControlNet+AnimateDiff) 需要 NVIDIA GPU，在 Windows 工作站执行。
+    </div>
+  </div>
+</div>
+
 <!-- Depth Preview -->
 <div id="depth-preview-corner"><span class="label">DEPTH</span><canvas id="depth-canvas-corner"></canvas></div>
 <div id="depth-overlay"><canvas id="depth-canvas-overlay"></canvas></div>
@@ -255,6 +354,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+// Parse URL parameters
+const urlParams = new URLSearchParams(window.location.search);
+const isDemoMode = urlParams.get('demo') === '1';
 
 // ============================================================
 // Three.js 初始化
@@ -669,6 +772,7 @@ window.generateScene = async function() {
 
       if (result.model_url) {
         await loadGLB(API + result.model_url);
+        updateWorkflowStep(2, '场景探索');
       }
       setTimeout(() => { prog.style.display = 'none'; }, 3000);
     } else {
@@ -700,7 +804,7 @@ async function pollSceneStatus(id, btn, bar, elapsed, prog, start) {
         btn.textContent = 'AI 生成 3D 场景';
         btn.disabled = false;
         document.getElementById('scene-status').innerHTML = '<span class="ok">场景就绪</span>';
-        if (s.model_url) await loadGLB(API + s.model_url);
+        if (s.model_url) { await loadGLB(API + s.model_url); updateWorkflowStep(2, '场景探索'); }
         setTimeout(() => { prog.style.display = 'none'; }, 2000);
       } else if (s.status === 'failed') {
         clearInterval(poll);
@@ -753,6 +857,227 @@ window.undoKeyframe = function() {
   keyframes.pop();
   refreshKFList();
 };
+
+// ============================================================
+// 镜头预设 — 纯 JS 关键帧生成器 (Three.js Y-up)
+// ============================================================
+function generatePresetKeyframes(presetName, center, radius) {
+  const [cx, cy, cz] = center;
+  const r = radius;
+  const keyframes = [];
+
+  function quatFromLook(pos, target) {
+    const m = new THREE.Matrix4().lookAt(
+      new THREE.Vector3(...pos),
+      new THREE.Vector3(...target),
+      new THREE.Vector3(0, 1, 0)
+    );
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    return [q.x, q.y, q.z, q.w];
+  }
+
+  const presets = {
+    nolan_orbit: () => {
+      const duration = 6, nk = 12;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const angle = Math.PI * 1.5 + t * Math.PI;
+        const d = r * 1.8;
+        const px = cx + Math.cos(angle) * d;
+        const pz = cz + Math.sin(angle) * d;
+        const py = cy + r * 0.3;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 50,
+        });
+      }
+    },
+    anime_closeup: () => {
+      const duration = 3, nk = 8;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const et = 3*t*t - 2*t*t*t;
+        const d = r * 6 + (r * 1.5 - r * 6) * et;
+        const wobble = Math.sin(t * 7) * 0.12 * r * (1 - t);
+        const px = cx + d;
+        const py = cy + r * 0.4 + wobble;
+        const pz = cz;
+        const fov = 50 + (40 - 50) * t;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: +fov.toFixed(1),
+        });
+      }
+    },
+    dolly_reveal: () => {
+      const duration = 5, nk = 10;
+      const lat = r * 7;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const px = cx - lat + lat * 1.3 * t;
+        const pz = cz + lat * 0.4;
+        const py = cy + r * 0.5;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 65,
+        });
+      }
+    },
+    drone_ascend: () => {
+      const duration = 8, nk = 16;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const py = cy + r * 1.5 + t * r * 6;
+        const dist = r * 3 - t * r * 1.5;
+        const angle = -0.3 + t * 0.6;
+        const px = cx + Math.cos(angle) * dist;
+        const pz = cz + Math.sin(angle) * dist;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 60,
+        });
+      }
+    },
+    hero_tracking: () => {
+      const duration = 5, nk = 10;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const d = r * 2 + t * r * 3;
+        const px = cx + d;
+        const py = cy + r * 0.15;
+        const pz = cz - r * 0.3;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 45,
+        });
+      }
+    },
+    suspense_pan: () => {
+      const duration = 7, nk = 14;
+      const dist = r * 3.5;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const angle = -0.7 + t * 1.4;
+        const px = cx + Math.sin(angle) * dist;
+        const pz = cz - Math.cos(angle) * dist;
+        const py = cy + r * 0.5;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 35,
+        });
+      }
+    },
+    god_eye: () => {
+      const duration = 10, nk = 20;
+      const height = r * 6;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const angle = t * Math.PI * 0.5;
+        const px = cx + Math.cos(angle) * r * 0.4;
+        const pz = cz + Math.sin(angle) * r * 0.4;
+        const py = cy + height;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 50,
+        });
+      }
+    },
+    whip_pan: () => {
+      const duration = 1.5, nk = 6;
+      const dist = r * 3;
+      for (let i = 0; i < nk; i++) {
+        const t = i / (nk - 1);
+        const et = t * t * (3 - 2 * t);
+        const angle = (et - 0.5) * Math.PI * 0.5;
+        const px = cx + Math.sin(angle) * dist;
+        const pz = cz - Math.cos(angle) * dist;
+        const py = cy + r * 0.5;
+        keyframes.push({
+          t: +(t * duration).toFixed(2),
+          pos: [round3(px), round3(py), round3(pz)],
+          quat: quatFromLook([px, py, pz], [cx, cy, cz]),
+          fov: 55,
+        });
+      }
+    },
+  };
+
+  if (presets[presetName]) presets[presetName]();
+  return keyframes;
+}
+
+function round3(v) { return +v.toFixed(3); }
+
+function getSceneBounds() {
+  if (modelGroup.children.length > 0) {
+    const box = new THREE.Box3().setFromObject(modelGroup);
+    const c = box.getCenter(new THREE.Vector3());
+    const s = box.getSize(new THREE.Vector3());
+    return { center: [c.x, c.y, c.z], radius: Math.max(s.x, s.y, s.z) / 2 };
+  }
+  return { center: [0, 0, 0], radius: 3 };
+}
+
+async function applyPreset(btn) {
+  if (!currentSceneId) { toast('请先生成或加载场景'); return; }
+  const presetName = btn.dataset.preset;
+  const descEl = document.getElementById('preset-desc');
+  const descs = {
+    nolan_orbit: '环绕主体 180°, 低角度仰拍',
+    anime_closeup: '快速推近主体, 微幅晃动',
+    dolly_reveal: '侧向平移, 主体逐渐入画',
+    drone_ascend: '地面升到鸟瞰, 向下俯拍',
+    hero_tracking: '低角度跟拍, 后退拉开环境',
+    suspense_pan: '缓慢水平横扫, 悬疑感',
+    god_eye: '极高鸟瞰, 极慢自转',
+    whip_pan: '快速甩镜, 急转视线',
+  };
+  descEl.textContent = descs[presetName] || '';
+
+  const btns = document.querySelectorAll('.btn-preset');
+  btns.forEach(b => b.disabled = true);
+
+  const bounds = getSceneBounds();
+  keyframes = generatePresetKeyframes(presetName, bounds.center, bounds.radius);
+  document.getElementById('path-name').value = presetName;
+  refreshKFList();
+  updateWorkflowStep(3, '运镜设计');
+
+  // 自动保存预设路径
+  if (keyframes.length >= 2) {
+    try {
+      await apiCall('POST', '/api/camera-paths', {
+        scene_id: currentSceneId,
+        name: (isDemoMode ? '[Demo] ' : '') + (descs[presetName] || presetName),
+        duration: keyframes[keyframes.length - 1].t,
+        fps: 24,
+        camera_mode: camMode,
+        interpolation: 'catmull-rom',
+        keyframes,
+      });
+      refreshPathList();
+    } catch (e) { /* 保存失败不阻断 */ }
+  }
+
+  btns.forEach(b => b.disabled = false);
+  toast(`预设: ${descs[presetName] || presetName}`);
+}
+
+window.applyPreset = applyPreset;
 
 function refreshKFList() {
   const container = document.getElementById('kf-list');
@@ -1338,8 +1663,11 @@ async function renderDepthMaps() {
 
   try {
     const result = await apiCall('POST', `/api/camera-paths/${pathId}/render-depth`);
-    toast(`深度图渲染完成: ${result.frame_count} 帧 → ${result.depth_dir}`);
-    progress.textContent = `完成: ${result.frame_count} 帧`;
+    _renderedDepthPathId = pathId;
+    _depthFrameUrls = result.depth_urls || [];
+    updateWorkflowStep(4, 'AI 渲染');
+    toast(`深度图渲染完成: ${result.frame_count} 帧`);
+    progress.textContent = `完成: ${result.frame_count} 帧 — 点击「预览深度序列」查看`;
     btn.textContent = '渲染深度图 ✓';
     setTimeout(() => { btn.textContent = '渲染深度图'; btn.disabled = false; progress.style.display = 'none'; }, 3000);
   } catch (e) {
@@ -1353,95 +1681,79 @@ async function renderDepthMaps() {
 window.renderDepthMaps = renderDepthMaps;
 
 // ============================================================
-// 预览运镜
+// 深度序列播放器
 // ============================================================
-let previewAnimating = false;
-let previewRAF = null;
+let depthVideoPlaying = false;
+let depthVideoRAF = null;
+let depthVideoIdx = 0;
 
-window.previewPath = function() {
-  if (keyframes.length < 2) { toast('至少需要 2 个关键帧才能预览'); return; }
-  if (previewAnimating) { stopPreview(); return; }
-
-  previewAnimating = true;
-  const totalDuration = keyframes[keyframes.length - 1].t;
-  const startTime = performance.now();
-
-  function animatePreview(now) {
-    const elapsed = (now - startTime) / 1000;
-    const time = elapsed % totalDuration;
-    const sample = samplePath(keyframes, time);
-
-    if (sample) {
-      camera.position.copy(sample.pos);
-      camera.quaternion.copy(sample.quat);
-      camera.fov = sample.fov;
-      camera.updateProjectionMatrix();
-      showGhostCamera(sample.pos, sample.quat);
-    }
-
-    if (previewAnimating) {
-      previewRAF = requestAnimationFrame(animatePreview);
-    }
+function showDepthVideo() {
+  document.getElementById('depth-video-modal').style.display = 'flex';
+  document.getElementById('depth-video-info').textContent =
+    `${_depthFrameUrls.length} 帧深度图`;
+  if (_depthFrameUrls.length === 0) {
+    toast('暂无深度图数据，请先渲染深度图');
+    return;
   }
-
-  previewRAF = requestAnimationFrame(animatePreview);
-  toast('预览中... 按 P 停止');
-};
-
-function stopPreview() {
-  previewAnimating = false;
-  if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; }
-  hideGhostCamera();
+  depthVideoIdx = 0;
+  loadDepthFrame(depthVideoIdx);
 }
 
-// ============================================================
-// 视频渲染
-// ============================================================
-window.renderVideo = async function() {
-  if (!currentSceneId) { toast('请先生成或加载场景'); return; }
-  if (!apiOk) { toast('API 离线'); return; }
+function loadDepthFrame(idx) {
+  const canvas = document.getElementById('depth-video-canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width || 512;
+    canvas.height = img.height || 384;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.onerror = () => { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvas.width, canvas.height); };
+  img.src = API + _depthFrameUrls[idx];
+}
 
-  const prompt = document.getElementById('render-prompt').value.trim();
-  if (!prompt) { toast('请输入渲染 prompt'); return; }
-
-  // 如果没有录制关键帧，用当前相机位置
-  let frames = keyframes;
-  if (frames.length === 0) {
-    const pose = getPose();
-    frames = [{ t: 0, ...pose }, { t: 2, ...pose }];
+window.toggleDepthVideo = function() {
+  if (depthVideoPlaying) {
+    depthVideoPlaying = false;
+    if (depthVideoRAF) cancelAnimationFrame(depthVideoRAF);
+    document.getElementById('btn-depth-play').textContent = '播放';
+    return;
   }
-
-  // 先通过旧 API 创建场景 + 录制帧
-  const sceneId = currentSceneId || 'test_scene';
-  try {
-    await apiCall('POST', `/scene/create?scene_id=${sceneId}`);
-    for (let i = 0; i < frames.length; i++) {
-      const kf = frames[i];
-      await apiCall('POST', '/camera/record_frame', {
-        scene_id: sceneId,
-        frame_id: i,
-        camera_pose: {
-          position: { x: kf.pos[0], y: kf.pos[1], z: kf.pos[2] },
-          rotation: { x: kf.quat[0], y: kf.quat[1], z: kf.quat[2], w: kf.quat[3] },
-        },
-      });
+  depthVideoPlaying = true;
+  document.getElementById('btn-depth-play').textContent = '暂停';
+  const fps = 8;
+  const interval = 1000 / fps;
+  let lastTime = performance.now();
+  function animateVideo(now) {
+    if (!depthVideoPlaying) return;
+    const elapsed = now - lastTime;
+    if (elapsed >= interval) {
+      depthVideoIdx = (depthVideoIdx + 1) % _depthFrameUrls.length;
+      loadDepthFrame(depthVideoIdx);
+      document.getElementById('depth-video-fps').textContent =
+        `${depthVideoIdx + 1}/${_depthFrameUrls.length}`;
+      lastTime = now;
     }
-
-    const result = await apiCall('POST', '/render/video', {
-      scene_id: sceneId,
-      prompt,
-      fps: 24,
-      interpolation: 3,
-      conditioning_scale: 1.7,
-      num_steps: 25,
-      seed: Math.floor(Math.random() * 9999),
-    });
-
-    toast(`视频已生成: ${result.video_url}`);
-    window.open(API + result.video_url, '_blank');
-  } catch (e) {
-    toast(`渲染失败: ${e.message}`);
+    depthVideoRAF = requestAnimationFrame(animateVideo);
   }
+  depthVideoRAF = requestAnimationFrame(animateVideo);
+};
+
+window.closeDepthVideo = function() {
+  depthVideoPlaying = false;
+  if (depthVideoRAF) cancelAnimationFrame(depthVideoRAF);
+  document.getElementById('depth-video-modal').style.display = 'none';
+};
+
+// 深度序列渲染按钮
+window.renderVideo = async function() {
+  const pathId = document.getElementById('path-select').value;
+  if (!_renderedDepthPathId || _renderedDepthPathId !== pathId) {
+    toast('请先点击「渲染深度图」生成深度序列');
+    return;
+  }
+  showDepthVideo();
+  updateWorkflowStep(4, 'AI 渲染');
 };
 
 // ============================================================
@@ -1452,6 +1764,88 @@ function updateSceneInfo() {
   document.getElementById('scene-status').innerHTML =
     `<span class="ok">场景: ${currentSceneId}</span>`;
   refreshPathList();
+}
+
+// ============================================================
+// 工作流步骤指示器
+// ============================================================
+function updateWorkflowStep(step, label) {
+  const el = document.getElementById('workflow-step');
+  if (el) el.textContent = `步骤 ${step}/4: ${label}`;
+}
+
+// ============================================================
+// Demo 模式
+// ============================================================
+function showDemoOverlay() {
+  document.getElementById('demo-overlay').style.display = 'flex';
+}
+
+function closeDemoOverlay() {
+  document.getElementById('demo-overlay').style.display = 'none';
+}
+
+window.closeDemoOverlay = closeDemoOverlay;
+
+async function initDemoMode() {
+  try {
+    const data = await apiCall('GET', '/api/demo/setup');
+    if (data.scene_id && data.model_url) {
+      currentSceneId = data.scene_id;
+      document.getElementById('prompt-input').value = data.scene_prompt || '';
+      await loadGLB(API + data.model_url);
+      updateWorkflowStep(2, '场景探索');
+
+      if (data.paths.length > 0) {
+        const select = document.getElementById('path-select');
+        select.innerHTML = '<option value="">-- 选择运镜 --</option>';
+        data.paths.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.keyframe_count} 帧)`;
+          select.appendChild(opt);
+        });
+        // 自动加载第一条 demo 路径
+        select.value = data.paths[0].id;
+        await loadPath(data.paths[0].id);
+        updateWorkflowStep(3, '运镜设计');
+        toast('Demo 模式: 场景 + 运镜已就绪');
+      } else {
+        // 首次访问：自动生成 demo 运镜
+        const bounds = getSceneBounds();
+        keyframes = generatePresetKeyframes('nolan_orbit', bounds.center, bounds.radius);
+        document.getElementById('path-name').value = '[Demo] Nolan Orbit';
+        refreshKFList();
+        updateWorkflowStep(3, '运镜设计');
+
+        if (keyframes.length >= 2) {
+          const result = await apiCall('POST', '/api/camera-paths', {
+            scene_id: currentSceneId,
+            name: '[Demo] Nolan Orbit',
+            duration: keyframes[keyframes.length - 1].t,
+            fps: 24,
+            camera_mode: 'orbit',
+            interpolation: 'catmull-rom',
+            keyframes,
+          });
+          const select = document.getElementById('path-select');
+          select.innerHTML = '<option value="">-- 选择运镜 --</option>';
+          const opt = document.createElement('option');
+          opt.value = result.id;
+          opt.textContent = `[Demo] Nolan Orbit (${keyframes.length} 帧)`;
+          select.appendChild(opt);
+          select.value = result.id;
+        }
+        toast('Demo 模式: 场景已加载, 运镜已生成');
+      }
+
+      updateSceneInfo();
+      showDemoOverlay();
+    }
+  } catch (e) {
+    console.warn('Demo init failed:', e);
+    toast('Demo 模式初始化失败，请先生成场景');
+  }
 }
 
 // ============================================================
@@ -1485,6 +1879,8 @@ const cornerCtx = cornerCanvas.getContext('2d');
 const cornerDiv = document.getElementById('depth-preview-corner');
 const overlayDiv = document.getElementById('depth-overlay');
 
+let _renderedDepthPathId = null;
+let _depthFrameUrls = [];
 let _depthFrameCounter = 0;
 
 function updateCornerPreview() {
@@ -1531,7 +1927,7 @@ function animate() {
 
   if (camMode === 'orbit') {
     controls.update();
-  } else if (!previewAnimating) {
+  } else if (!tlPlaying) {
     updateVelocity(dt);
   }
 
@@ -1557,9 +1953,14 @@ window.addEventListener('resize', () => {
 });
 
 // ============================================================
-// 初始加载：尝试加载已存在的场景
+// 初始加载
 // ============================================================
 (async function init() {
+  if (isDemoMode) {
+    await initDemoMode();
+    return;
+  }
+
   try {
     const data = await apiCall('GET', '/api/scenes?status=ready');
     if (data.scenes && data.scenes.length > 0) {
@@ -1568,11 +1969,18 @@ window.addEventListener('resize', () => {
       document.getElementById('prompt-input').value = latest.user_prompt;
       if (latest.model_url) {
         await loadGLB(API + latest.model_url);
+        updateWorkflowStep(2, '场景探索');
       }
       updateSceneInfo();
+      document.getElementById('scene-status').innerHTML =
+        `<span class="ok">场景已加载</span>`;
+    } else {
+      document.getElementById('scene-status').innerHTML =
+        `<span class="warn">暂无场景 — 输入 Prompt 点击生成，或 <a href="?demo=1" style="color:#7c3aed">进入 Demo</a></span>`;
     }
   } catch (e) {
-    // 首次启动没有场景是正常的
+    document.getElementById('scene-status').innerHTML =
+      `<span class="err">后端未连接 — 请启动服务器</span>`;
   }
 })();
 </script>
