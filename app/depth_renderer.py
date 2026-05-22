@@ -116,38 +116,18 @@ def _interpolate_keyframes(keyframes: list[dict], fps: int) -> list[dict]:
     return frames
 
 
-def _three_to_blender_pose(three_pos, three_quat):
+def _three_to_blender_pose(three_pos, three_target):
     """
     Three.js (Y-up) → Blender (Z-up) 坐标转换。
-
-    GLTF 规范是 Y-up。Three.js GLTFLoader 保持 Y-up。
-    Blender 导入 GLB 时自动 Y-up → Z-up。
-    所以需要把 Three.js 相机位姿转回 Blender 坐标。
+    直接转换 pos 和 target，不做四元数反推。
     """
-    # 位置: Three(x, y, z) → Blender(x, -z, y)
     bx = three_pos[0]
     by = -three_pos[2]
     bz = three_pos[1]
 
-    # 从四元数计算前方向量 (Three.js 相机前方向是 -Z)
-    qx, qy, qz, qw = three_quat
-    # 旋转 (0, 0, -1) 得到前方向
-    fx = -2 * (qx * qz + qw * qy)
-    fy = -2 * (qy * qz - qw * qx)
-    fz = -1 + 2 * (qx * qx + qy * qy)
-    flen = math.sqrt(fx * fx + fy * fy + fz * fz)
-    fx, fy, fz = fx / flen, fy / flen, fz / flen
-
-    # 前方向也从 Y-up 转到 Z-up
-    bfx = fx
-    bfy = -fz
-    bfz = fy
-
-    # 计算 Blender 中的 look-at 目标点
-    target_dist = 5.0
-    tx = bx + bfx * target_dist
-    ty = by + bfy * target_dist
-    tz = bz + bfz * target_dist
+    tx = three_target[0]
+    ty = -three_target[2]
+    tz = three_target[1]
 
     return (bx, by, bz), (tx, ty, tz)
 
@@ -187,7 +167,7 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
     # 坐标转换
     blender_poses = []
     for f in frames:
-        pos, target = _three_to_blender_pose(f["pos"], f["quat"])
+        pos, target = _three_to_blender_pose(f["pos"], f.get("target", f["pos"]))
         blender_poses.append({
             "t": f["t"],
             "position": list(pos),
@@ -287,7 +267,7 @@ def render_preview_video(camera_path_id: str) -> dict:
 
     blender_poses = []
     for f in frames:
-        pos, target = _three_to_blender_pose(f["pos"], f["quat"])
+        pos, target = _three_to_blender_pose(f["pos"], f.get("target", f["pos"]))
         blender_poses.append({
             "t": f["t"],
             "position": list(pos),

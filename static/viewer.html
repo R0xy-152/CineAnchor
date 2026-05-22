@@ -1088,6 +1088,9 @@ function generatePresetKeyframes(presetName, center, radius) {
   };
 
   if (presets[presetName]) presets[presetName]();
+  // 存 target 以便 Blender 端直接用坐标转换, 避免从四元数反推的误差
+  const tgt = [round3(cx), round3(cy), round3(cz)];
+  keyframes.forEach(k => k.target = tgt);
   return keyframes;
 }
 
