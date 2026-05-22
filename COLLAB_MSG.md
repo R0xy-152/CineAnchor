@@ -1407,49 +1407,48 @@ git push
 
 ---
 
-## 🔴 任务包 #4 — 批量 AI 视频生成 (5 个场景)
+## 🔴 任务包 #4 (修订) — 批量 AI 视频生成，24帧/场景
 
-mac 端已准备好所有深度帧。`demo_depth_frames/` 包含 5 个子目录，每个有 8 帧 + prompt.txt。
+⚠️ 上一版 8 帧太少，视频只有 1 秒。现在升级到 **24 帧/场景**。
 
-### 执行步骤
+`demo_depth_frames/` 已更新，每个子目录包含 **24 帧** + prompt.txt。
 
 ```bash
 git pull origin main
+# 确认: demo_depth_frames/zen_garden/ 有 frame_0000~0023.png (共 24 个)
 ```
 
-确认 `demo_depth_frames/` 存在。然后对每个场景运行以下 Python 脚本：
+### 执行脚本
 
 ```python
 import os, sys, shutil
 from pathlib import Path
 
 scenes = [
-    ("zen_garden",       "a serene japanese zen garden, cherry blossoms, golden hour lighting, photorealistic, 8K"),
-    ("scifi_corridor",   "a futuristic scifi corridor, neon lights, cyberpunk, metallic walls, cinematic, 8K"),
+    ("zen_garden",       "a serene japanese zen garden, cherry blossoms, golden hour lighting, cinematographic, photorealistic, 8K"),
+    ("scifi_corridor",   "a futuristic scifi corridor with neon lights, cyberpunk style, metallic walls, cinematic, 8K"),
     ("floating_islands", "floating islands in the sky, waterfalls, crystals, fantasy, epic cinematography, 8K"),
-    ("desert_ruins",     "ancient desert ruins, pyramids, sand dunes, harsh sunlight, cinematic, 8K"),
-    ("forest_glade",     "a sunny forest glade, god rays through trees, moss, nature, photorealistic, 8K"),
+    ("desert_ruins",     "ancient desert ruins with pyramids, sand dunes, harsh sunlight, cinematic, photorealistic, 8K"),
+    ("forest_glade",     "a sunny forest glade with god rays through trees, moss, nature, photorealistic, 8K"),
 ]
 
 base = Path("demo_depth_frames")
 
 for scene_name, prompt in scenes:
     scene_dir = base / scene_name
-    if not scene_dir.exists():
-        print(f"SKIP {scene_name}: directory not found")
-        continue
-    
     frames = sorted(scene_dir.glob("frame_*.png"))
     print(f"\n{'='*60}")
     print(f"  {scene_name}: {len(frames)} depth frames")
     print(f"{'='*60}")
     
-    # Step 1: 深度帧 → ControlNet RGB
+    # Step 1: ControlNet-Depth + AnimateDiff
     from controlnet_renderer import ControlNetRenderer
-    cn = ControlNetRenderer()  # SD 1.5 + AnimateDiff
+    cn = ControlNetRenderer()
     
     rgb_dir = Path("controlnet_output") / f"{scene_name}_rgb"
     rgb_dir.mkdir(parents=True, exist_ok=True)
+    for f in rgb_dir.glob("*.png"):
+        f.unlink()
     
     frame_paths = [str(p) for p in frames]
     try:
@@ -1459,14 +1458,14 @@ for scene_name, prompt in scenes:
             controlnet_conditioning_scale=1.7,
         )
     except Exception as e:
-        print(f"  AnimateDiff failed: {e}, falling back to per-frame")
+        print(f"  AnimateDiff failed: {e}, per-frame fallback")
         cn.render_batch(
             str(scene_dir), prompt, str(rgb_dir),
             num_inference_steps=25, seed=42,
             controlnet_conditioning_scale=1.7,
         )
     
-    # Step 2: RAFT 3x 插值
+    # Step 2: RAFT 3x 插值 (24 → 72 帧)
     from frame_interpolator import FrameInterpolator
     interp = FrameInterpolator()
     rgb_frames = sorted([str(p) for p in rgb_dir.glob("*.png")])
@@ -1474,22 +1473,22 @@ for scene_name, prompt in scenes:
     interp_dir.mkdir(parents=True, exist_ok=True)
     rgb_frames = interp.interpolate_sequence(rgb_frames, multiplier=3, output_dir=str(interp_dir))
     
-    # Step 3: ffmpeg → MP4 (24fps)
+    # Step 3: ffmpeg → MP4 (24fps, 72帧 = 3秒流畅运镜)
     from video_renderer import VideoRenderer
     vr = VideoRenderer()
     out_path = f"static/videos/{scene_name}_demo.mp4"
     vr.stitch(rgb_frames, out_path, fps=24)
-    print(f"  Output: {out_path}")
+    print(f"  Output: {out_path} ({len(rgb_frames)} frames)")
 
-print("\nDone! All 5 scenes rendered.")
+print("\nDone!")
 ```
 
-### 配置
-- SD 1.5 + AnimateDiff, 512×512
-- scale=1.7, seed=42, steps=25
-- RAFT 3x → 24fps MP4
+### 预期产出
+- 24 depth → 24 RGB → RAFT 3x → **72 帧**
+- 24fps → **3 秒流畅运镜**
+- 5 个场景 = 5 个 MP4
 
-### 产出提交
+### 提交
 
 ```bash
 git add static/videos/zen_garden_demo.mp4 \
@@ -1497,7 +1496,7 @@ git add static/videos/zen_garden_demo.mp4 \
         static/videos/floating_islands_demo.mp4 \
         static/videos/desert_ruins_demo.mp4 \
         static/videos/forest_glade_demo.mp4
-git commit -m "demo: 5-scene AI rendered videos"
+git commit -m "demo: 5-scene AI videos v2 (24f source, 72f output, 3s)"
 git push
 ```
 
