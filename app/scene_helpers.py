@@ -174,6 +174,54 @@ def material_emissive(name, color, strength=10.0):
     return mat
 
 
+def material_procedural(name, color_a, color_b, roughness=0.3, metallic=0.8,
+                        scale=3.0, bump_strength=0.02):
+    """程序化双色材质 — 噪声混合两个颜色 + 凹凸"""
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    texcoord = nodes.new('ShaderNodeTexCoord')
+    texcoord.location = (-800, 200)
+    mapping = nodes.new('ShaderNodeMapping')
+    mapping.location = (-600, 200)
+    mapping.inputs['Scale'].default_value = (scale, scale, scale)
+    links.new(texcoord.outputs['Object'], mapping.inputs['Vector'])
+
+    noise = nodes.new('ShaderNodeTexNoise')
+    noise.location = (-400, 200)
+    noise.inputs['Scale'].default_value = 4.0
+    noise.inputs['Detail'].default_value = 2.0
+    links.new(mapping.outputs['Vector'], noise.inputs['Vector'])
+
+    mix = nodes.new('ShaderNodeMix')
+    mix.location = (-200, 200)
+    mix.data_type = 'RGBA'
+    mix.inputs['Factor'].default_value = 0.5
+    mix.inputs['A'].default_value = (*color_a, 1.0)
+    mix.inputs['B'].default_value = (*color_b, 1.0)
+    links.new(noise.outputs['Fac'], mix.inputs['Factor'])
+
+    bump_node = nodes.new('ShaderNodeBump')
+    bump_node.location = (0, -100)
+    bump_node.inputs['Strength'].default_value = bump_strength
+    links.new(noise.outputs['Fac'], bump_node.inputs['Height'])
+
+    bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.location = (200, 200)
+    bsdf.inputs['Roughness'].default_value = roughness
+    bsdf.inputs['Metallic'].default_value = metallic
+    links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+    links.new(bump_node.outputs['Normal'], bsdf.inputs['Normal'])
+
+    output = nodes.new('ShaderNodeOutputMaterial')
+    output.location = (500, 200)
+    links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+    return mat
+
+
 # ═══════════════════════════════════════════════════════════
 # 光照
 # ═══════════════════════════════════════════════════════════

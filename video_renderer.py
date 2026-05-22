@@ -38,18 +38,23 @@ class VideoRenderer:
         if not self.ffmpeg_available:
             return self._frames_fallback(frame_paths, output_path, fps)
 
+        frame_duration = 1.0 / fps
         concat_file = os.path.join(self.output_dir, "_concat.txt")
         with open(concat_file, "w") as f:
             for p in frame_paths:
-                f.write(f"file '{os.path.abspath(p)}'\n")
+                # 用正斜杠 + duration 避免 Windows 路径问题 + 帧长度丢失
+                path = os.path.abspath(p).replace("\\", "/")
+                f.write(f"file '{path}'\n")
+                f.write(f"duration {frame_duration:.8f}\n")
 
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-vf", "fps={},scale=512:512:force_original_aspect_ratio=decrease,"
-                   "pad=512:512:(ow-iw)/2:(oh-ih)/2".format(fps),
+            "-vf", "scale=512:512:force_original_aspect_ratio=decrease,"
+                   "pad=512:512:(ow-iw)/2:(oh-ih)/2",
             "-c:v", "libx264", "-crf", str(crf),
             "-pix_fmt", "yuv420p",
+            "-r", str(fps),
             output_path
         ]
 

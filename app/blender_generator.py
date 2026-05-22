@@ -17,11 +17,35 @@ import uuid
 import json
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 from .config import BASE_DIR, MODELS_DIR
 
-BLENDER_BIN = "/opt/homebrew/bin/blender"
+# 自动检测 Blender 路径 (macOS / Windows / Linux)
+def _find_blender() -> str:
+    import platform
+    if platform.system() == "Windows":
+        # 在 PATH 中搜索
+        blender = shutil.which("blender")
+        if blender:
+            return blender
+        # 常见安装路径 — glob 搜索
+        import glob as _glob
+        for p in _glob.glob("C:/Program Files/Blender Foundation/Blender */blender.exe"):
+            return p
+        return "blender"  # 让 subprocess 自己报错
+    elif platform.system() == "Darwin":
+        candidates = ["/opt/homebrew/bin/blender", "/Applications/Blender.app/Contents/MacOS/blender"]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return shutil.which("blender") or "blender"
+    else:
+        return shutil.which("blender") or "blender"
+
+BLENDER_BIN = _find_blender()
 SCENES_DIR = BASE_DIR / "app" / "scenes"
 
 # ── 模板 → 脚本映射 ─────────────────────────────────────
@@ -86,8 +110,8 @@ def generate_scene(prompt: str, scene_id: Optional[str] = None) -> dict:
     params["output_path"] = str(output_path)
 
     # 写入 JSON 参数文件
-    params_path = Path("/tmp") / f"cineanchor_params_{scene_id}.json"
-    params_path.write_text(json.dumps(params, ensure_ascii=False))
+    params_path = Path(tempfile.gettempdir()) / f"cineanchor_params_{scene_id}.json"
+    params_path.write_text(json.dumps(params, ensure_ascii=False), encoding="utf-8")
 
     # 设置环境变量让脚本能找到 app/
     env = os.environ.copy()
@@ -98,14 +122,17 @@ def generate_scene(prompt: str, scene_id: Optional[str] = None) -> dict:
             [BLENDER_BIN, "--background", "--python", str(script_path),
              "--", str(params_path)],
             capture_output=True, text=True, timeout=180,
-            env=env,
+            env=env, encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
-            err = result.stderr[-500:] if result.stderr else "Unknown error"
-            return {"error": f"Blender 运行失败 (exit {result.returncode}): {err}"}
+            err = result.stderr[-800:] if result.stderr else "Unknown error"
+            out = result.stdout[-400:] if result.stdout else ""
+            return {"error": f"Blender 运行失败 (exit {result.returncode}):\nSTDERR: {err}\nSTDOUT: {out}"}
 
         if not output_path.exists():
-            return {"error": f"脚本执行完成但未生成 GLB: {output_path}"}
+            err = result.stderr[-800:] if result.stderr else ""
+            out = result.stdout[-400:] if result.stdout else ""
+            return {"error": f"脚本执行完成但未生成 GLB: {output_path}\nSTDERR: {err}\nSTDOUT: {out}"}
 
         return {
             "scene_id": scene_id,

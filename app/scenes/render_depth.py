@@ -18,18 +18,14 @@ import math
 import bpy
 
 
-def create_depth_material(far_clip=25.0):
+def create_depth_material(far_clip=25.0, near_clip=0.5):
     """
-    深度着色器 — 验证可行版本
+    Depth shader with full-range normalization.
 
-    节点图:
+    Node graph:
       Camera Data → View Distance
-        → Math DIVIDE (÷ far_clip)          [0..1]
-        → Math ADD (+0.001, 防0值噪点)
+        → Map Range [near_clip, far_clip] → [1.0, 0.0]  (near=bright)
         → Emission Strength
-
-    Emission 白色 × Strength → 灰度深度值
-    Cycles 渲染时 Film 色彩管理自然扩展色调范围
     """
     mat = bpy.data.materials.new("DepthMat")
     mat.use_nodes = True
@@ -38,12 +34,14 @@ def create_depth_material(far_clip=25.0):
     nodes.clear()
 
     cam_data = nodes.new('ShaderNodeCameraData')
-    cam_data.location = (-400, 0)
+    cam_data.location = (-600, 0)
 
-    divide = nodes.new('ShaderNodeMath')
-    divide.location = (-200, 0)
-    divide.operation = 'DIVIDE'
-    divide.inputs[1].default_value = far_clip
+    map_range = nodes.new('ShaderNodeMapRange')
+    map_range.location = (-300, 0)
+    map_range.inputs['From Min'].default_value = near_clip
+    map_range.inputs['From Max'].default_value = far_clip
+    map_range.inputs['To Min'].default_value = 1.0
+    map_range.inputs['To Max'].default_value = 0.0
 
     emission = nodes.new('ShaderNodeEmission')
     emission.location = (0, 0)
@@ -52,8 +50,8 @@ def create_depth_material(far_clip=25.0):
     output = nodes.new('ShaderNodeOutputMaterial')
     output.location = (200, 0)
 
-    links.new(cam_data.outputs['View Distance'], divide.inputs[0])
-    links.new(divide.outputs['Value'], emission.inputs['Strength'])
+    links.new(cam_data.outputs['View Distance'], map_range.inputs['Value'])
+    links.new(map_range.outputs['Result'], emission.inputs['Strength'])
     links.new(emission.outputs['Emission'], output.inputs['Surface'])
 
     return mat
@@ -115,8 +113,10 @@ scene.render.image_settings.file_format = 'PNG'
 scene.render.image_settings.color_mode = 'RGB'
 scene.render.image_settings.color_depth = '8'
 
-# Filmic 色彩管理 (默认) — 扩展色调范围, 给 ControlNet 更多层次
-# 注意: 不设置 Raw, Filmic 的 lift/gamma/gain 对深度图是正向的
+# 使用 Standard 色彩管理 — 比 Filmic 保留更多暗部细节
+# Filmic 会压暗深度图, 改成 Standard 让深度数据更可读
+scene.view_settings.view_transform = 'Standard'
+scene.view_settings.look = 'None'
 
 if engine == 'CYCLES':
     scene.cycles.samples = samples
@@ -126,6 +126,10 @@ if engine == 'CYCLES':
 else:
     scene.eevee.taa_render_samples = samples
     print(f"[DepthRender] EEVEE {samples} TAA samples")
+
+# ── Compositor: pass-through (no post-processing) ─────────
+# Depth normalization is done in the shader via Map Range node
+scene.use_nodes = False
 
 # ── 逐帧渲染 ──────────────────────────────────────────────
 for fi, frame in enumerate(frames):

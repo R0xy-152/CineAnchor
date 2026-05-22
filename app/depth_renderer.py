@@ -11,13 +11,35 @@ import subprocess
 import json
 import math
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 from .config import BASE_DIR, DEPTH_DIR, MODELS_DIR
 from .database import db_session
 
-BLENDER_BIN = "/opt/homebrew/bin/blender"
+# 自动检测 Blender 路径
+def _find_blender() -> str:
+    import platform
+    if platform.system() == "Windows":
+        blender = shutil.which("blender")
+        if blender:
+            return blender
+        import glob as _glob
+        for p in _glob.glob("C:/Program Files/Blender Foundation/Blender */blender.exe"):
+            return p
+        return "blender"
+    elif platform.system() == "Darwin":
+        candidates = ["/opt/homebrew/bin/blender", "/Applications/Blender.app/Contents/MacOS/blender"]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return shutil.which("blender") or "blender"
+    else:
+        return shutil.which("blender") or "blender"
+
+BLENDER_BIN = _find_blender()
 DEPTH_SCRIPT = BASE_DIR / "app" / "scenes" / "render_depth.py"
 
 
@@ -184,13 +206,13 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
         "frames": blender_poses,
         "resolution_x": 768,
         "resolution_y": 512,
-        "far_clip": 25.0,
+        "far_clip": 15.0,
         "engine": "CYCLES",
         "samples": 32,
     }
 
-    input_path = Path("/tmp") / f"cineanchor_depth_input_{camera_path_id}.json"
-    input_path.write_text(json.dumps(render_input, ensure_ascii=False))
+    input_path = Path(tempfile.gettempdir()) / f"cineanchor_depth_input_{camera_path_id}.json"
+    input_path.write_text(json.dumps(render_input, ensure_ascii=False), encoding="utf-8")
 
     env = os.environ.copy()
     env["CINEANCHOR_ROOT"] = str(BASE_DIR)
@@ -199,10 +221,10 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
         result = subprocess.run(
             [BLENDER_BIN, "--background", "--python", str(DEPTH_SCRIPT), "--", str(input_path)],
             capture_output=True, text=True, timeout=600,
-            env=env,
+            env=env, encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
-            err = result.stderr[-500:] if result.stderr else "Unknown error"
+            err = result.stderr[-800:] if result.stderr else "Unknown error"
             return {"error": f"Blender 深度渲染失败 (exit {result.returncode}): {err}"}
     except subprocess.TimeoutExpired:
         return {"error": "深度图渲染超时 (600s)"}
