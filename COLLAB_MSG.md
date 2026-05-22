@@ -1406,3 +1406,99 @@ git push
 ```
 
 ---
+
+## 🔴 任务包 #4 — 批量 AI 视频生成 (5 个场景)
+
+mac 端已准备好所有深度帧。`demo_depth_frames/` 包含 5 个子目录，每个有 8 帧 + prompt.txt。
+
+### 执行步骤
+
+```bash
+git pull origin main
+```
+
+确认 `demo_depth_frames/` 存在。然后对每个场景运行以下 Python 脚本：
+
+```python
+import os, sys, shutil
+from pathlib import Path
+
+scenes = [
+    ("zen_garden",       "a serene japanese zen garden, cherry blossoms, golden hour lighting, photorealistic, 8K"),
+    ("scifi_corridor",   "a futuristic scifi corridor, neon lights, cyberpunk, metallic walls, cinematic, 8K"),
+    ("floating_islands", "floating islands in the sky, waterfalls, crystals, fantasy, epic cinematography, 8K"),
+    ("desert_ruins",     "ancient desert ruins, pyramids, sand dunes, harsh sunlight, cinematic, 8K"),
+    ("forest_glade",     "a sunny forest glade, god rays through trees, moss, nature, photorealistic, 8K"),
+]
+
+base = Path("demo_depth_frames")
+
+for scene_name, prompt in scenes:
+    scene_dir = base / scene_name
+    if not scene_dir.exists():
+        print(f"SKIP {scene_name}: directory not found")
+        continue
+    
+    frames = sorted(scene_dir.glob("frame_*.png"))
+    print(f"\n{'='*60}")
+    print(f"  {scene_name}: {len(frames)} depth frames")
+    print(f"{'='*60}")
+    
+    # Step 1: 深度帧 → ControlNet RGB
+    from controlnet_renderer import ControlNetRenderer
+    cn = ControlNetRenderer()  # SD 1.5 + AnimateDiff
+    
+    rgb_dir = Path("controlnet_output") / f"{scene_name}_rgb"
+    rgb_dir.mkdir(parents=True, exist_ok=True)
+    
+    frame_paths = [str(p) for p in frames]
+    try:
+        cn.render_animated(
+            frame_paths, prompt, str(rgb_dir),
+            num_inference_steps=25, seed=42,
+            controlnet_conditioning_scale=1.7,
+        )
+    except Exception as e:
+        print(f"  AnimateDiff failed: {e}, falling back to per-frame")
+        cn.render_batch(
+            str(scene_dir), prompt, str(rgb_dir),
+            num_inference_steps=25, seed=42,
+            controlnet_conditioning_scale=1.7,
+        )
+    
+    # Step 2: RAFT 3x 插值
+    from frame_interpolator import FrameInterpolator
+    interp = FrameInterpolator()
+    rgb_frames = sorted([str(p) for p in rgb_dir.glob("*.png")])
+    interp_dir = Path("controlnet_output") / f"{scene_name}_interp"
+    interp_dir.mkdir(parents=True, exist_ok=True)
+    rgb_frames = interp.interpolate_sequence(rgb_frames, multiplier=3, output_dir=str(interp_dir))
+    
+    # Step 3: ffmpeg → MP4 (24fps)
+    from video_renderer import VideoRenderer
+    vr = VideoRenderer()
+    out_path = f"static/videos/{scene_name}_demo.mp4"
+    vr.stitch(rgb_frames, out_path, fps=24)
+    print(f"  Output: {out_path}")
+
+print("\nDone! All 5 scenes rendered.")
+```
+
+### 配置
+- SD 1.5 + AnimateDiff, 512×512
+- scale=1.7, seed=42, steps=25
+- RAFT 3x → 24fps MP4
+
+### 产出提交
+
+```bash
+git add static/videos/zen_garden_demo.mp4 \
+        static/videos/scifi_corridor_demo.mp4 \
+        static/videos/floating_islands_demo.mp4 \
+        static/videos/desert_ruins_demo.mp4 \
+        static/videos/forest_glade_demo.mp4
+git commit -m "demo: 5-scene AI rendered videos"
+git push
+```
+
+---
