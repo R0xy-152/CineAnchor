@@ -267,6 +267,8 @@
   </div>
   <button class="btn-depth" onclick="renderDepthMaps()" style="width:100%">渲染深度图</button>
   <div id="depth-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
+  <button class="btn-render" onclick="renderPreviewVideo()" style="margin-top:4px;width:100%">🎥 预览运镜 (实时渲染)</button>
+  <div id="preview-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
   <button class="btn-render" onclick="renderVideo()" style="margin-top:4px;width:100%">预览深度序列</button>
   <button class="btn-secondary" onclick="showDemoResult()" style="margin-top:4px;width:100%;color:#4ade80;border-color:rgba(74,222,128,0.3)">▶ 观看 AI 渲染示例</button>
 
@@ -1823,15 +1825,50 @@ window.switchDemoVideo = function(sceneName) {
   demoVid.play();
 };
 
+// 预览运镜 — 直接 Blender EEVEE 渲染, 清晰流畅
+window.renderPreviewVideo = async function() {
+  const pathId = document.getElementById('path-select').value;
+  if (!pathId) { toast('请先保存或加载一个运镜路径'); return; }
+
+  const btn = document.querySelector('.btn-render');
+  const prog = document.getElementById('preview-progress');
+  btn.disabled = true; btn.textContent = '预览渲染中...';
+  prog.style.display = 'block'; prog.textContent = 'Blender EEVEE 正在渲染...';
+
+  try {
+    const result = await apiCall('POST', `/api/camera-paths/${pathId}/render-preview`);
+    prog.textContent = `完成: ${result.frame_count} 帧, ${result.duration.toFixed(1)}s`;
+    btn.textContent = '预览运镜 ✓';
+
+    // 弹出视频播放器
+    const modal = document.getElementById('depth-video-modal');
+    const player = document.getElementById('demo-video-player');
+    const info = document.getElementById('depth-video-info');
+    player.querySelector('source').src = API + result.video_url;
+    player.load();
+    info.textContent = `运镜预览 — ${result.frame_count} 帧 EEVEE 实时渲染`;
+    modal.style.display = 'flex';
+    document.getElementById('depth-video-canvas').style.display = 'none';
+    document.getElementById('depth-video-fps').style.display = 'none';
+    document.getElementById('btn-depth-play').style.display = 'none';
+
+    setTimeout(() => { btn.textContent = '🎥 预览运镜 (实时渲染)'; btn.disabled = false; prog.style.display = 'none'; }, 3000);
+  } catch (e) {
+    toast(`预览渲染失败: ${e.message}`);
+    btn.textContent = '🎥 预览运镜 (实时渲染)'; btn.disabled = false;
+    prog.style.display = 'none';
+  }
+};
+
 window.showDemoResult = function() {
   const demoVid = document.getElementById('demo-video-player');
-  // 根据当前场景类型选择视频
   const prompt = document.getElementById('prompt-input').value || currentSceneType;
   const videoUrl = getDemoVideo(prompt);
   demoVid.querySelector('source').src = videoUrl;
   demoVid.load();
+  demoVid.play().catch(() => {});  // autoplay muted video
 
-  document.getElementById('depth-video-info').textContent = 'AI 渲染结果示例 (ControlNet + AnimateDiff)';
+  document.getElementById('depth-video-info').textContent = `AI 渲染示例 — ${videoUrl.split('/').pop()}`;
   document.getElementById('depth-video-modal').style.display = 'flex';
   document.getElementById('depth-video-canvas').style.display = 'none';
   document.getElementById('depth-video-fps').style.display = 'none';

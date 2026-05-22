@@ -18,7 +18,7 @@ from app.scene_manager import (
 from app.camera_path import (
     save_camera_path, get_camera_path, list_camera_paths, delete_camera_path
 )
-from app.depth_renderer import render_depth_maps
+from app.depth_renderer import render_depth_maps, render_preview_video
 from app.camera_presets import list_presets
 
 # --- 初始化数据库 ---
@@ -317,6 +317,15 @@ async def api_delete_camera_path(path_id: str):
 async def api_render_depth(path_id: str):
     """为已保存的 camera path 渲染真实深度图序列"""
     result = render_depth_maps(path_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/api/camera-paths/{path_id}/render-preview", summary="预览运镜")
+async def api_render_preview(path_id: str):
+    """直接渲染 GLB 场景预览视频 (EEVEE, 无 AI, 秒出)"""
+    result = render_preview_video(path_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from .config import BASE_DIR, DEPTH_DIR, MODELS_DIR
+from .config import BASE_DIR, DEPTH_DIR, MODELS_DIR, VIDEOS_DIR
 from .database import db_session
 
 # 自动检测 Blender 路径
@@ -259,4 +259,91 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
         "depth_dir": str(out_dir),
         "depth_files": [str(f) for f in depth_files],
         "depth_urls": [f"/depth_maps/{out_dir.name}/{f.name}" for f in depth_files],
+    }
+
+PREVIEW_SCRIPT = BASE_DIR / "app" / "scenes" / "render_preview.py"
+
+
+def render_preview_video(camera_path_id: str) -> dict:
+    """直接渲染 GLB 场景预览视频 (无 AI, EEVEE 快速渲染)"""
+    with db_session() as conn:
+        path_row = conn.execute("SELECT * FROM camera_paths WHERE id = ?", (camera_path_id,)).fetchone()
+        if not path_row:
+            return {"error": f"Camera path {camera_path_id} 不存在"}
+
+        scene_row = conn.execute("SELECT * FROM scenes WHERE id = ?", (path_row["scene_id"],)).fetchone()
+        if not scene_row:
+            return {"error": f"Scene {path_row['scene_id']} 不存在"}
+
+        model_path = scene_row["model_path"]
+        if not model_path or not os.path.exists(model_path):
+            return {"error": f"模型文件不存在: {model_path}"}
+
+    keyframes = json.loads(path_row["keyframes"])
+    fps = path_row["fps"]
+
+    frames = _interpolate_keyframes(keyframes, fps)
+    print(f"[PreviewRender] {len(keyframes)} keyframes -> {len(frames)} frames @ {fps}fps")
+
+    blender_poses = []
+    for f in frames:
+        pos, target = _three_to_blender_pose(f["pos"], f["quat"])
+        blender_poses.append({
+            "t": f["t"],
+            "position": list(pos),
+            "target": list(target),
+            "fov": f.get("fov", 55),
+        })
+
+    out_dir = DEPTH_DIR / f"preview_{camera_path_id}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("preview_*.png"):
+        old.unlink()
+
+    render_input = {
+        "glb_path": model_path,
+        "output_dir": str(out_dir),
+        "frames": blender_poses,
+        "resolution_x": 640,
+        "resolution_y": 480,
+        "engine": "CYCLES",
+        "samples": 16,
+    }
+
+    input_path = Path(tempfile.gettempdir()) / f"cineanchor_preview_{camera_path_id}.json"
+    input_path.write_text(json.dumps(render_input, ensure_ascii=False), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CINEANCHOR_ROOT"] = str(BASE_DIR)
+
+    try:
+        result = subprocess.run(
+            [BLENDER_BIN, "--background", "--python", str(PREVIEW_SCRIPT), "--", str(input_path)],
+            capture_output=True, text=True, timeout=600,
+            env=env, encoding="utf-8", errors="replace",
+        )
+        if result.returncode != 0:
+            err = result.stderr[-800:] if result.stderr else "Unknown error"
+            return {"error": f"预览渲染失败 (exit {result.returncode}): {err}"}
+    except subprocess.TimeoutExpired:
+        return {"error": "预览渲染超时 (600s)"}
+    finally:
+        if input_path.exists():
+            input_path.unlink()
+
+    frame_files = sorted(out_dir.glob("preview_*.png"))
+    if not frame_files:
+        return {"error": f"未产出预览帧: {out_dir}"}
+
+    from video_renderer import VideoRenderer
+    preview_video = VIDEOS_DIR / f"preview_{camera_path_id}.mp4"
+    vr = VideoRenderer()
+    vr.stitch([str(f) for f in frame_files], str(preview_video), fps=fps)
+
+    return {
+        "camera_path_id": camera_path_id,
+        "scene_id": path_row["scene_id"],
+        "frame_count": len(frame_files),
+        "video_url": f"/videos/preview_{camera_path_id}.mp4",
+        "duration": len(frame_files) / fps,
     }
