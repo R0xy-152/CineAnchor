@@ -6,6 +6,7 @@ from typing import Optional
 from app.config import MODELS_DIR
 from app.database import db_session
 from app.meshy_client import MeshyClient
+from app.blender_generator import generate_scene as blender_generate
 
 meshy = MeshyClient()
 
@@ -104,8 +105,44 @@ def get_scene(scene_id: str) -> Optional[dict]:
             return None
         d = dict(row)
         if d.get("model_path") and os.path.exists(d["model_path"]):
-            d["model_url"] = f"/static/models/{d['id']}.glb"
+            d["model_url"] = f"/static/models/{os.path.basename(d['model_path'])}"
         return d
+
+
+def create_scene_with_blender(prompt: str) -> dict:
+    """使用 Blender 本地生成 3D 场景 (无需 Meshy API)"""
+    scene_id = f"scene_{uuid.uuid4().hex[:12]}"
+
+    with db_session() as conn:
+        conn.execute(
+            "INSERT INTO scenes (id, user_prompt, status) VALUES (?, ?, ?)",
+            (scene_id, prompt, "generating"),
+        )
+
+    result = blender_generate(prompt, scene_id=scene_id)
+
+    if "error" in result:
+        with db_session() as conn:
+            conn.execute(
+                "UPDATE scenes SET status='failed', error_message=? WHERE id=?",
+                (result["error"], scene_id),
+            )
+        return {"id": scene_id, "status": "failed", "error": result["error"]}
+
+    model_path = result["model_path"]
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE scenes SET status='ready', model_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (model_path, scene_id),
+        )
+
+    return {
+        "id": scene_id,
+        "prompt": prompt,
+        "status": "ready",
+        "model_url": result["model_url"],
+        "template": result.get("template"),
+    }
 
 
 def list_scenes(status: str = None) -> list[dict]:
@@ -118,6 +155,6 @@ def list_scenes(status: str = None) -> list[dict]:
         for row in rows:
             d = dict(row)
             if d.get("model_path") and os.path.exists(d["model_path"]):
-                d["model_url"] = f"/static/models/{d['id']}.glb"
+                d["model_url"] = f"/static/models/{os.path.basename(d['model_path'])}"
             results.append(d)
         return results

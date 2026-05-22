@@ -36,6 +36,8 @@
   .btn-record.recording { background: #dc2626; animation: pulse 0.8s infinite; }
   @keyframes pulse { 50% { opacity: 0.6; } }
   .btn-render { background: #16a34a; color: #fff; }
+  .btn-depth { background: #6366f1; color: #fff; }
+  .btn-depth:disabled { background: #475569; cursor: not-allowed; }
   .btn-path { background: rgba(255,255,255,0.08); color: #ccc; }
   .btn-secondary { background: rgba(255,255,255,0.06); color: #aaa; font-size: 11px; }
 
@@ -97,6 +99,41 @@
     opacity: 0; transition: opacity 0.2s;
   }
   #toast.show { opacity: 1; }
+
+  /* ---- Timeline ---- */
+  #timeline-wrap {
+    position: fixed; bottom: 0; left: 0; right: 316px; height: 82px;
+    background: rgba(20,20,30,0.94); border-top: 1px solid rgba(255,255,255,0.08);
+    z-index: 10; display: flex; flex-direction: column; padding: 4px 8px;
+  }
+  #timeline-controls {
+    display: flex; align-items: center; gap: 6px; height: 24px;
+  }
+  #timeline-controls button {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: #aaa; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;
+  }
+  #timeline-controls button:hover { color: #fff; background: rgba(255,255,255,0.12); }
+  #timeline-controls button.active { color: #4ade80; border-color: #4ade80; }
+  #timeline-controls .time-display { font-size: 11px; color: #888; margin-left: auto; font-family: monospace; }
+  #timeline-canvas { flex: 1; cursor: pointer; }
+
+  /* ---- Depth Preview ---- */
+  #depth-preview-corner {
+    position: fixed; bottom: 90px; right: 320px; width: 256px; height: 160px;
+    border: 1px solid rgba(99,102,241,0.5); border-radius: 6px; overflow: hidden;
+    z-index: 8; display: none; background: #000;
+  }
+  #depth-preview-corner canvas { width: 100%; height: 100%; }
+  #depth-preview-corner .label {
+    position: absolute; top: 2px; left: 6px; font-size: 10px; color: #6366f1;
+    font-family: monospace; pointer-events: none;
+  }
+  #depth-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 5; display: none; background: #000;
+  }
+  #depth-overlay canvas { width: 100%; height: 100%; }
 </style>
 </head>
 <body>
@@ -150,6 +187,9 @@
   </select>
   <button class="btn-secondary" onclick="previewPath()" style="margin-top:4px">预览运镜 (P)</button>
 
+  <button class="btn-depth" onclick="renderDepthMaps()" style="margin-top:6px;width:100%">渲染深度图</button>
+  <div id="depth-progress" style="font-size:11px;color:#94a3b8;margin-top:2px;display:none"></div>
+
   <div class="divider"></div>
 
   <!-- 渲染 -->
@@ -171,11 +211,35 @@
 </div>
 
 <div id="instructions">
-  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 捕获关键帧 | P 预览运镜</span>
-  <span id="instr-fly" style="display:none">WASD 移动 | Space/Ctrl 升降 | 鼠标转视角<br>R 捕获关键帧 | P 预览运镜 | 点击画布锁定</span>
+  <span id="instr-orbit">拖拽旋转 | 滚轮缩放 | 右键平移<br>R 捕获关键帧 | P 预览运镜 | Space 播放 | D 深度预览</span>
+  <span id="instr-fly" style="display:none">WASD 移动 | Space/Ctrl 升降 | 鼠标转视角<br>R 捕获关键帧 | P 预览运镜 | D 深度预览</span>
+</div>
+
+<!-- Timeline -->
+<div id="timeline-wrap">
+  <div id="timeline-controls">
+    <button id="tl-play" onclick="tlTogglePlay()">▶ 播放</button>
+    <button id="tl-loop" onclick="tlToggleLoop()">🔁</button>
+    <button onclick="tlGoStart()">⏮</button>
+    <button onclick="tlGoEnd()">⏭</button>
+    <span style="color:#555;font-size:11px">|</span>
+    <span style="font-size:10px;color:#666">Easing:</span>
+    <select id="tl-easing" onchange="tlSetEasing()" style="font-size:10px;padding:1px 3px;background:rgba(255,255,255,0.05);color:#ccc;border:1px solid rgba(255,255,255,0.1);border-radius:3px">
+      <option value="linear">Linear</option>
+      <option value="ease-in">Ease In</option>
+      <option value="ease-out">Ease Out</option>
+      <option value="ease-in-out">Ease In-Out</option>
+    </select>
+    <span class="time-display" id="tl-time">0.0 / 0.0 s</span>
+  </div>
+  <canvas id="timeline-canvas"></canvas>
 </div>
 
 <canvas id="canvas"></canvas>
+
+<!-- Depth Preview -->
+<div id="depth-preview-corner"><span class="label">DEPTH</span><canvas id="depth-canvas-corner"></canvas></div>
+<div id="depth-overlay"><canvas id="depth-canvas-overlay"></canvas></div>
 
 <script type="importmap">
 {
@@ -583,68 +647,76 @@ window.generateScene = async function() {
   const elapsed = document.getElementById('gen-elapsed');
 
   btn.disabled = true;
-  btn.textContent = '提交中...';
+  btn.textContent = 'Blender 生成中...';
   prog.style.display = 'block';
-  bar.style.width = '5%';
+  bar.style.width = '30%';
+  elapsed.textContent = '正在用 Blender 生成 3D 场景...';
+
+  const start = Date.now();
 
   try {
-    const result = await apiCall('POST', '/api/scenes/generate', { prompt });
-    currentSceneId = result.id;
-    document.getElementById('scene-status').innerHTML =
-      `场景: <span class="warn">生成中 (${result.id})</span>`;
-    elapsed.textContent = '任务已提交，等待 Meshy 返回...';
-    bar.style.width = '10%';
+    // 优先使用 Blender 本地生成 (免费、离线、秒出)
+    const result = await apiCall('POST', '/api/scenes/generate-blender', { prompt });
 
-    // 轮询状态
-    let start = Date.now();
-    btn.textContent = '生成中...';
+    if (result.status === 'ready') {
+      const secs = Math.floor((Date.now() - start) / 1000);
+      bar.style.width = '100%';
+      elapsed.textContent = `Blender 生成完成 (${secs}s) · 模板: ${result.template || 'default'}`;
+      btn.textContent = 'AI 生成 3D 场景';
+      btn.disabled = false;
+      currentSceneId = result.id;
+      document.getElementById('scene-status').innerHTML = '<span class="ok">场景就绪</span>';
 
-    const poll = setInterval(async () => {
-      try {
-        const s = await apiCall('POST', `/api/scenes/${currentSceneId}/check`);
-        const secs = Math.floor((Date.now() - start) / 1000);
-        elapsed.textContent = `生成中... ${secs}s`;
-
-        if (s.progress) {
-          bar.style.width = Math.min(s.progress, 90) + '%';
-        }
-
-        if (s.status === 'ready') {
-          clearInterval(poll);
-          bar.style.width = '100%';
-          elapsed.textContent = `完成 (${secs}s)`;
-          btn.textContent = 'AI 生成 3D 场景';
-          btn.disabled = false;
-          document.getElementById('scene-status').innerHTML =
-            '<span class="ok">场景就绪</span>';
-
-          if (s.model_url) {
-            await loadGLB(API + s.model_url);
-          }
-          setTimeout(() => { prog.style.display = 'none'; }, 2000);
-        } else if (s.status === 'failed') {
-          clearInterval(poll);
-          elapsed.textContent = `失败: ${s.error || '未知错误'}`;
-          btn.textContent = 'AI 生成 3D 场景';
-          btn.disabled = false;
-          document.getElementById('scene-status').innerHTML =
-            `<span class="err">生成失败</span>`;
-        }
-      } catch (e) {
-        clearInterval(poll);
-        btn.textContent = 'AI 生成 3D 场景';
-        btn.disabled = false;
-        prog.style.display = 'none';
-        toast(`轮询失败: ${e.message}`);
+      if (result.model_url) {
+        await loadGLB(API + result.model_url);
       }
-    }, 3000);
+      setTimeout(() => { prog.style.display = 'none'; }, 3000);
+    } else {
+      // 回退: 可能走了 Meshy 异步生成
+      elapsed.textContent = '任务已提交，等待生成...';
+      bar.style.width = '10%';
+      pollSceneStatus(result.id, btn, bar, elapsed, prog, start);
+    }
   } catch (e) {
     btn.disabled = false;
     btn.textContent = 'AI 生成 3D 场景';
     prog.style.display = 'none';
-    toast(`提交失败: ${e.message}`);
+    toast(`生成失败: ${e.message}`);
   }
 };
+
+async function pollSceneStatus(id, btn, bar, elapsed, prog, start) {
+  const poll = setInterval(async () => {
+    try {
+      const s = await apiCall('POST', `/api/scenes/${id}/check`);
+      const secs = Math.floor((Date.now() - start) / 1000);
+      elapsed.textContent = `生成中... ${secs}s`;
+      if (s.progress) bar.style.width = Math.min(s.progress, 90) + '%';
+
+      if (s.status === 'ready') {
+        clearInterval(poll);
+        bar.style.width = '100%';
+        elapsed.textContent = `完成 (${secs}s)`;
+        btn.textContent = 'AI 生成 3D 场景';
+        btn.disabled = false;
+        document.getElementById('scene-status').innerHTML = '<span class="ok">场景就绪</span>';
+        if (s.model_url) await loadGLB(API + s.model_url);
+        setTimeout(() => { prog.style.display = 'none'; }, 2000);
+      } else if (s.status === 'failed') {
+        clearInterval(poll);
+        elapsed.textContent = `失败: ${s.error || '未知错误'}`;
+        btn.textContent = 'AI 生成 3D 场景';
+        btn.disabled = false;
+        document.getElementById('scene-status').innerHTML = '<span class="err">生成失败</span>';
+      }
+    } catch (e) {
+      clearInterval(poll);
+      btn.textContent = 'AI 生成 3D 场景';
+      btn.disabled = false;
+      prog.style.display = 'none';
+    }
+  }, 3000);
+}
 
 // ============================================================
 // 关键帧录制
@@ -688,11 +760,12 @@ function refreshKFList() {
   countEl.textContent = `${keyframes.length} 关键帧`;
   container.innerHTML = keyframes.map((kf, i) =>
     `<div class="kf-item" onclick="goToKeyframe(${i})">
-      <span>#${i+1} t=${kf.t.toFixed(1)}s</span>
+      <span>#${i+1} t=${kf.t.toFixed(1)}s <span style="color:#888;font-size:10px">${kf.easing||'linear'}</span></span>
       <span class="del" onclick="event.stopPropagation(); deleteKF(${i})">x</span>
     </div>`
   ).join('');
   drawTrajectory(keyframes);
+  tlRender();
 }
 
 window.deleteKF = function(i) {
@@ -711,6 +784,9 @@ window.goToKeyframe = function(i) {
     controls.target.copy(camera.position).add(fwd);
     controls.update();
   }
+  tlSelectedKF = i;
+  tlCurrentTime = kf.t;
+  tlRender();
 };
 
 // ============================================================
@@ -833,6 +909,450 @@ async function loadPath(id) {
 window.loadPath = loadPath;
 
 // ============================================================
+// Timeline 系统
+// ============================================================
+let tlPlaying = false;
+let tlLooping = true;
+let tlCurrentTime = 0;
+let tlSelectedKF = -1;      // 当前选中的关键帧索引
+let tlDraggingKF = -1;      // 正在拖拽的关键帧索引
+let tlDuration = 5;         // 总时长 (秒)
+const TL_PADDING = 40;      // 画布左右边距
+const KF_RADIUS = 8;
+
+// easing 函数
+const EASING_FNS = {
+  'linear':      t => t,
+  'ease-in':     t => t * t,
+  'ease-out':    t => t * (2 - t),
+  'ease-in-out': t => t < 0.5 ? 2*t*t : -1 + (4-2*t)*t,
+};
+
+function tlDurationFromKF() {
+  if (keyframes.length < 2) return 5;
+  return keyframes[keyframes.length - 1].t + 1;
+}
+
+function tlRender() {
+  const cvs = document.getElementById('timeline-canvas');
+  const rect = cvs.parentElement.getBoundingClientRect();
+  cvs.width = rect.width - 16;
+  cvs.height = rect.height - 28;
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  tlDuration = tlDurationFromKF();
+  const pad = TL_PADDING;
+  const w = W - pad * 2;
+  const rulerY = 12;
+  const trackY = 28;
+  const kfY = trackY;
+  const handleY = 44;
+
+  function timeToX(t) { return pad + (t / tlDuration) * w; }
+  function xToTime(x) { return ((x - pad) / w) * tlDuration; }
+
+  // ── 标尺 ──
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad, rulerY); ctx.lineTo(pad + w, rulerY);
+  ctx.stroke();
+
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  const tickInterval = tlDuration <= 5 ? 0.5 : (tlDuration <= 10 ? 1 : 2);
+  for (let t = 0; t <= tlDuration + 0.001; t += tickInterval) {
+    const x = timeToX(t);
+    ctx.beginPath();
+    ctx.moveTo(x, rulerY - 4); ctx.lineTo(x, rulerY + 4);
+    ctx.stroke();
+    ctx.fillText(t.toFixed(1) + 's', x, rulerY - 6);
+  }
+
+  // ── 关键帧轨道 ──
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  ctx.moveTo(pad, trackY); ctx.lineTo(pad + w, trackY);
+  ctx.stroke();
+
+  // ── easing 曲线 ──
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    const k0 = keyframes[i], k1 = keyframes[i + 1];
+    const x0 = timeToX(k0.t), x1 = timeToX(k1.t);
+    const easing = EASING_FNS[k0.easing || 'linear'];
+    ctx.strokeStyle = 'rgba(99,102,241,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const steps = Math.max(4, Math.floor((x1 - x0) / 3));
+    for (let s = 0; s <= steps; s++) {
+      const rawT = s / steps;
+      const easedT = easing(rawT);
+      const cx = x0 + (x1 - x0) * rawT;
+      const cy = trackY - easedT * 14;
+      if (s === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+
+  // ── 关键帧节点 ──
+  keyframes.forEach((kf, i) => {
+    const x = timeToX(kf.t);
+    const isSelected = i === tlSelectedKF;
+    const isDragging = i === tlDraggingKF;
+
+    // 菱形
+    ctx.fillStyle = isSelected ? '#facc15' : (isDragging ? '#fbbf24' : '#6366f1');
+    ctx.strokeStyle = isSelected ? '#fbbf24' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, kfY - KF_RADIUS);
+    ctx.lineTo(x + KF_RADIUS, kfY);
+    ctx.lineTo(x, kfY + KF_RADIUS);
+    ctx.lineTo(x - KF_RADIUS, kfY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 标签
+    if (isSelected || keyframes.length <= 6) {
+      ctx.fillStyle = '#aaa';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${(kf.t).toFixed(1)}s`, x, kfY + KF_RADIUS + 12);
+    }
+  });
+
+  // ── 播放头 ──
+  if (tlPlaying || tlCurrentTime > 0) {
+    const px = timeToX(tlCurrentTime);
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, 0); ctx.lineTo(px, H);
+    ctx.stroke();
+
+    // 三角播放头
+    ctx.fillStyle = '#4ade80';
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px - 5, -6);
+    ctx.lineTo(px + 5, -6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ── 选中关键帧的 easing 类型 ──
+  if (tlSelectedKF >= 0 && tlSelectedKF < keyframes.length) {
+    const kf = keyframes[tlSelectedKF];
+    const easing = kf.easing || 'linear';
+    document.getElementById('tl-easing').value = easing;
+  }
+
+  // ── 时间显示 ──
+  document.getElementById('tl-time').textContent =
+    `${tlCurrentTime.toFixed(1)} / ${tlDuration.toFixed(1)} s`;
+}
+
+// ── Canvas 鼠标交互 ──
+const tlCanvas = document.getElementById('timeline-canvas');
+
+tlCanvas.addEventListener('mousedown', (e) => {
+  const rect = tlCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const W = tlCanvas.width, pad = TL_PADDING, w = W - pad * 2;
+  const kfY = 28;
+
+  function timeToX(t) { return pad + (t / tlDuration) * w; }
+  function xToTime(x) { return ((x - pad) / w) * tlDuration; }
+
+  // 检查是否点击了关键帧
+  let hitKF = -1;
+  for (let i = 0; i < keyframes.length; i++) {
+    const kx = timeToX(keyframes[i].t);
+    if (Math.abs(mx - kx) < KF_RADIUS + 4 && Math.abs(my - kfY) < KF_RADIUS + 4) {
+      hitKF = i;
+      break;
+    }
+  }
+
+  if (hitKF >= 0) {
+    tlDraggingKF = hitKF;
+    tlSelectedKF = hitKF;
+    // 跳转相机到该关键帧
+    goToKeyframe(hitKF);
+    tlCanvas.style.cursor = 'grabbing';
+  } else {
+    // 点击空白区域 → 跳到该时间
+    tlSelectedKF = -1;
+    tlCurrentTime = Math.max(0, Math.min(tlDuration, xToTime(mx)));
+    tlSeekTo(tlCurrentTime);
+    if (tlPlaying) { tlPlayStart = performance.now(); tlPlayBaseTime = tlCurrentTime; }
+    tlCanvas.style.cursor = 'default';
+  }
+  tlRender();
+});
+
+tlCanvas.addEventListener('mousemove', (e) => {
+  if (tlDraggingKF < 0) {
+    // 悬停检测
+    const rect = tlCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const pad = TL_PADDING, w = tlCanvas.width - pad * 2, kfY = 28;
+    function timeToX(t) { return pad + (t / tlDuration) * w; }
+    let hovering = false;
+    for (let i = 0; i < keyframes.length; i++) {
+      const kx = timeToX(keyframes[i].t);
+      if (Math.abs(mx - kx) < KF_RADIUS + 4 && Math.abs(my - kfY) < KF_RADIUS + 4) {
+        hovering = true; break;
+      }
+    }
+    tlCanvas.style.cursor = hovering ? 'grab' : 'default';
+    return;
+  }
+
+  const rect = tlCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const pad = TL_PADDING, w = tlCanvas.width - pad * 2;
+  let newTime = ((mx - pad) / w) * tlDuration;
+  newTime = Math.max(0, Math.min(tlDuration, newTime));
+
+  // 约束: 不能拖过相邻关键帧
+  const prev = tlDraggingKF > 0 ? keyframes[tlDraggingKF - 1] : null;
+  const next = tlDraggingKF < keyframes.length - 1 ? keyframes[tlDraggingKF + 1] : null;
+  if (prev) newTime = Math.max(newTime, prev.t + 0.1);
+  if (next) newTime = Math.min(newTime, next.t - 0.1);
+
+  keyframes[tlDraggingKF].t = parseFloat(newTime.toFixed(2));
+  tlCurrentTime = keyframes[tlDraggingKF].t;
+  tlRender();
+  refreshKFList();
+  drawTrajectory(keyframes);
+});
+
+window.addEventListener('mouseup', () => {
+  if (tlDraggingKF >= 0) {
+    tlDraggingKF = -1;
+    tlCanvas.style.cursor = 'default';
+    tlRender();
+  }
+});
+
+// ── 播放控制 ──
+let tlRAF = null;
+let tlPlayStart = 0;
+let tlPlayBaseTime = 0;
+
+window.tlTogglePlay = function() {
+  if (keyframes.length < 2) { toast('至少需要 2 个关键帧才能播放'); return; }
+  if (tlPlaying) { tlStop(); return; }
+
+  tlPlaying = true;
+  tlPlayStart = performance.now();
+  tlPlayBaseTime = tlCurrentTime;
+  document.getElementById('tl-play').textContent = '⏸ 暂停';
+  document.getElementById('tl-play').classList.add('active');
+  tlPlayLoop();
+};
+
+function tlPlayLoop(now) {
+  if (!tlPlaying) return;
+  if (now === undefined) { tlRAF = requestAnimationFrame(tlPlayLoop); return; }
+
+  const elapsed = (now - tlPlayStart) / 1000;
+  tlCurrentTime = tlPlayBaseTime + elapsed;
+
+  if (tlCurrentTime >= tlDuration) {
+    if (tlLooping) {
+      tlCurrentTime = 0;
+      tlPlayStart = now;
+      tlPlayBaseTime = 0;
+    } else {
+      tlCurrentTime = tlDuration;
+      tlStop();
+      return;
+    }
+  }
+
+  tlSeekTo(tlCurrentTime);
+  tlRender();
+  tlRAF = requestAnimationFrame(tlPlayLoop);
+}
+
+function tlStop() {
+  tlPlaying = false;
+  if (tlRAF) { cancelAnimationFrame(tlRAF); tlRAF = null; }
+  document.getElementById('tl-play').textContent = '▶ 播放';
+  document.getElementById('tl-play').classList.remove('active');
+  hideGhostCamera();
+  tlRender();
+}
+
+function tlSeekTo(time) {
+  tlCurrentTime = time;
+  const sample = samplePathEased(keyframes, time);
+  if (sample) {
+    camera.position.copy(sample.pos);
+    camera.quaternion.copy(sample.quat);
+    camera.fov = sample.fov;
+    camera.updateProjectionMatrix();
+    if (camMode === 'orbit' && !tlPlaying) {
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      controls.target.copy(camera.position).add(fwd);
+      controls.update();
+    }
+    if (tlPlaying) showGhostCamera(sample.pos, sample.quat);
+  }
+}
+
+window.tlToggleLoop = function() {
+  tlLooping = !tlLooping;
+  document.getElementById('tl-loop').classList.toggle('active', tlLooping);
+};
+
+window.tlGoStart = function() {
+  tlCurrentTime = 0;
+  tlSeekTo(0);
+  tlRender();
+};
+
+window.tlGoEnd = function() {
+  tlCurrentTime = tlDuration;
+  tlSeekTo(tlDuration);
+  tlRender();
+};
+
+// ── Easing 设置 ──
+window.tlSetEasing = function() {
+  if (tlSelectedKF < 0 || tlSelectedKF >= keyframes.length) {
+    toast('请先在时间轴上点击选中一个关键帧');
+    document.getElementById('tl-easing').value = 'linear';
+    return;
+  }
+  const easing = document.getElementById('tl-easing').value;
+  keyframes[tlSelectedKF].easing = easing;
+  tlRender();
+};
+
+// ── 带 easing 的路径采样 ──
+function samplePathEased(keyframes, time) {
+  if (keyframes.length === 0) return null;
+  if (keyframes.length === 1) {
+    const k = keyframes[0];
+    return { pos: new THREE.Vector3(...k.pos), quat: new THREE.Quaternion(...k.quat), fov: k.fov };
+  }
+
+  // 找到 time 所在区段
+  let i = 0;
+  for (; i < keyframes.length - 1; i++) {
+    if (keyframes[i + 1].t > time) break;
+  }
+  if (i >= keyframes.length - 1) i = keyframes.length - 2;
+  if (time >= keyframes[keyframes.length - 1].t) {
+    i = keyframes.length - 2;
+  }
+
+  const k0 = keyframes[Math.max(0, i - 1)];
+  const k1 = keyframes[i];
+  const k2 = keyframes[Math.min(keyframes.length - 1, i + 1)];
+  const k3 = keyframes[Math.min(keyframes.length - 1, i + 2)];
+
+  const segStart = k1.t;
+  const segEnd = k2.t;
+  const segLen = segEnd - segStart || 0.001;
+  let localT = Math.max(0, Math.min(1, (time - segStart) / segLen));
+
+  // 应用 easing (k1 的 easing 作用于从 k1 到 k2 的区段)
+  const easingFn = EASING_FNS[k1.easing || 'linear'];
+  localT = easingFn(localT);
+
+  // Catmull-Rom 位置
+  const p0 = new THREE.Vector3(...k0.pos), p1 = new THREE.Vector3(...k1.pos);
+  const p2 = new THREE.Vector3(...k2.pos), p3 = new THREE.Vector3(...k3.pos);
+  const t = localT;
+  const tt = t * t, ttt = tt * t;
+  const pos = new THREE.Vector3()
+    .addScaledVector(p0, 0.5 * (-ttt + 2*tt - t))
+    .addScaledVector(p1, 0.5 * (3*ttt - 5*tt + 2))
+    .addScaledVector(p2, 0.5 * (-3*ttt + 4*tt + t))
+    .addScaledVector(p3, 0.5 * (ttt - tt));
+
+  // Slerp 旋转 (easing 作用下 re-map 旋转)
+  const eq1 = new THREE.Quaternion(...k1.quat);
+  const eq2 = new THREE.Quaternion(...k2.quat);
+  const quat = eq1.clone().slerp(eq2, localT);
+  const fov = k1.fov + (k2.fov - k1.fov) * localT;
+
+  return { pos, quat, fov };
+}
+
+// ── 替换旧 samplePath，统一使用 eased 版本 ──
+const _oldSamplePath = samplePath;
+samplePath = samplePathEased;
+
+// ── 替换旧 previewPath，统一使用 timeline 播放 ──
+window.previewPath = function() {
+  if (tlPlaying) { tlStop(); return; }
+  if (keyframes.length < 2) { toast('至少需要 2 个关键帧才能预览'); return; }
+  tlCurrentTime = 0;
+  tlTogglePlay();
+  toast('播放中... 按 P 或 Space 停止');
+};
+
+// ── 键盘 Space 播放/暂停 (仅 Orbit 模式, drone/fps 用 Space 飞行) ──
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && camMode === 'orbit') {
+    e.preventDefault();
+    tlTogglePlay();
+  }
+});
+
+// ── 窗口 resize 时重绘 timeline ──
+window.addEventListener('resize', () => {
+  tlRender();
+});
+
+// ── 初始渲染 ──
+setTimeout(tlRender, 500);
+
+async function renderDepthMaps() {
+  const pathSelect = document.getElementById('path-select');
+  const pathId = pathSelect.value;
+  if (!pathId) {
+    toast('请先保存或加载一个运镜路径');
+    return;
+  }
+
+  const btn = document.querySelector('.btn-depth');
+  const progress = document.getElementById('depth-progress');
+  btn.disabled = true;
+  btn.textContent = '渲染中...';
+  progress.style.display = 'block';
+  progress.textContent = 'Blender 正在渲染深度图...';
+
+  try {
+    const result = await apiCall('POST', `/api/camera-paths/${pathId}/render-depth`);
+    toast(`深度图渲染完成: ${result.frame_count} 帧 → ${result.depth_dir}`);
+    progress.textContent = `完成: ${result.frame_count} 帧`;
+    btn.textContent = '渲染深度图 ✓';
+    setTimeout(() => { btn.textContent = '渲染深度图'; btn.disabled = false; progress.style.display = 'none'; }, 3000);
+  } catch (e) {
+    toast(`深度图渲染失败: ${e.message}`);
+    btn.textContent = '渲染深度图';
+    btn.disabled = false;
+    progress.style.display = 'none';
+  }
+}
+
+window.renderDepthMaps = renderDepthMaps;
+
+// ============================================================
 // 预览运镜
 // ============================================================
 let previewAnimating = false;
@@ -946,6 +1466,61 @@ function toast(msg) {
 }
 
 // ============================================================
+// ============================================================
+// 实时深度预览 (D 键切换: off → 角落小窗 → 全屏深度)
+// ============================================================
+let depthMode = 0;  // 0=off, 1=corner, 2=fullscreen
+const depthMaterial = new THREE.MeshDepthMaterial({
+  depthPacking: THREE.RGBADepthPacking
+});
+
+// 小尺寸 render target (角落预览, 320×200)
+const depthRT = new THREE.WebGLRenderTarget(320, 200, {
+  format: THREE.RGBAFormat,
+  type: THREE.UnsignedByteType,
+});
+
+const cornerCanvas = document.getElementById('depth-canvas-corner');
+const cornerCtx = cornerCanvas.getContext('2d');
+const cornerDiv = document.getElementById('depth-preview-corner');
+const overlayDiv = document.getElementById('depth-overlay');
+
+let _depthFrameCounter = 0;
+
+function updateCornerPreview() {
+  // 每 5 帧更新一次 (足够流畅, 节省 GPU 读回)
+  _depthFrameCounter++;
+  if (_depthFrameCounter % 5 !== 0) return;
+
+  const origOverride = scene.overrideMaterial;
+  const origTarget = renderer.getRenderTarget();
+  scene.overrideMaterial = depthMaterial;
+  renderer.setRenderTarget(depthRT);
+  renderer.render(scene, camera);
+  scene.overrideMaterial = origOverride;
+  renderer.setRenderTarget(origTarget);
+
+  cornerCanvas.width = 320; cornerCanvas.height = 200;
+  const pixels = new Uint8Array(320 * 200 * 4);
+  renderer.readRenderTargetPixels(depthRT, 0, 0, 320, 200, pixels);
+  const imgData = cornerCtx.createImageData(320, 200);
+  imgData.data.set(pixels);
+  cornerCtx.putImageData(imgData, 0, 0);
+}
+
+// D 键切换
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'KeyD' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    depthMode = (depthMode + 1) % 3;
+    cornerDiv.style.display = depthMode === 1 ? 'block' : 'none';
+    overlayDiv.style.display = depthMode === 2 ? 'block' : 'none';
+    const modes = ['深度预览: 关闭', '深度预览: 角落 (D 切换)', '深度预览: 全屏 (D 切换)'];
+    toast(modes[depthMode]);
+  }
+});
+
 // Render Loop
 // ============================================================
 const clock = new THREE.Clock();
@@ -961,7 +1536,17 @@ function animate() {
   }
 
   updateHUD();
-  renderer.render(scene, camera);
+
+  // 全屏深度模式：直接在主画布渲染深度 (零开销)
+  if (depthMode === 2) {
+    scene.overrideMaterial = depthMaterial;
+    renderer.render(scene, camera);
+    scene.overrideMaterial = null;
+  } else {
+    renderer.render(scene, camera);
+    // 角落预览：异步更新小窗
+    if (depthMode === 1) updateCornerPreview();
+  }
 }
 animate();
 

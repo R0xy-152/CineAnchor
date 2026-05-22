@@ -30,3 +30,12 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# PBR textures (download separately from ambientCG)
+app/textures/
+
+# Generated GLB models (generated locally by Blender)
+static/models/
+
+# Legacy code
+app/scene_templates.py

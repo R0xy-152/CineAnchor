@@ -12,11 +12,13 @@ import uvicorn
 from app.config import MODELS_DIR, VIDEOS_DIR, DEPTH_DIR, RENDER_MODE
 from app.database import init_db
 from app.scene_manager import (
-    create_scene, check_and_update_scene, get_scene, list_scenes
+    create_scene, check_and_update_scene, get_scene, list_scenes,
+    create_scene_with_blender,
 )
 from app.camera_path import (
     save_camera_path, get_camera_path, list_camera_paths, delete_camera_path
 )
+from app.depth_renderer import render_depth_maps
 
 # --- 初始化数据库 ---
 init_db()
@@ -135,6 +137,14 @@ async def health():
 async def generate_scene(req: GenerateSceneRequest):
     """提交 Meshy Text-to-3D 生成任务"""
     result = create_scene(req.prompt)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/api/scenes/generate-blender", summary="Blender 本地生成 3D 场景")
+async def api_generate_scene_blender(req: GenerateSceneRequest):
+    """使用 Blender 本地生成 3D 场景 (无需外部 API，离线可用)"""
+    result = create_scene_with_blender(req.prompt)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -297,6 +307,18 @@ async def api_delete_camera_path(path_id: str):
     if not delete_camera_path(path_id):
         raise HTTPException(status_code=404, detail="Camera path 不存在")
     return {"message": "已删除"}
+
+
+# ============================================================
+# Depth Map Rendering API
+# ============================================================
+@app.post("/api/camera-paths/{path_id}/render-depth", summary="渲染深度图")
+async def api_render_depth(path_id: str):
+    """为已保存的 camera path 渲染真实深度图序列"""
+    result = render_depth_maps(path_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # --- 运行 ---
