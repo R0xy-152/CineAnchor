@@ -102,6 +102,46 @@ git push
 
 ---
 
+### [2026-05-22 任务包 #3 完成 ✅ — 小win]
+
+**任务 A：场景模板补齐 ✅**
+
+3 个新场景脚本已创建，结构完全对齐 `zen_garden.py` / `scifi_corridor.py`：
+
+| 文件 | 场景 | 核心元素 |
+|------|------|----------|
+| `app/scenes/floating_islands.py` | 浮岛天空仙境 | 5 个浮岛 (倒锥岩体 + 绿顶)、8 个水晶、3 条瀑布、藤蔓桥、20 朵云、6 远处小岛 |
+| `app/scenes/desert_ruins.py` | 沙漠遗迹 | 金字塔、4 个方尖碑、9 根石柱、40 块风化碎石、黄金圣甲虫像、3 层沙丘位移、火炬光照 |
+| `app/scenes/forest_glade.py` | 森林空地 | 8 棵大树 (锥形树冠)、15 丛灌木、30 块路径石、环形石圈、倒木+苔藓、20 朵发光花、体积光束 |
+
+**材质纹理 (ambientCG PBR)：** 按任务建议使用 `Ground054`(沙)、`Rock023`(石)、`Marble008`(大理石)、`Moss001`(苔)、`Wood045`(树皮)、`Ground044`(草)、`Rock032`(暗石)
+
+**参数支持：** `output_path`, `scale`, `time_of_day` (day/sunset/night 三模式，色调/光照/雾密度联动)
+
+**任务 B：Camera Preset Library ✅**
+
+新建 `app/camera_presets.py`，8 个镜头语言预设：
+
+| 预设 | 类型 | 参数 |
+|------|------|------|
+| `nolan_orbit` | 环绕 180° + 低仰角 | 12 关键帧, 6s |
+| `anime_closeup` | 快速推近 + wobble晃动 | ease-in 加速 |
+| `dolly_reveal` | 侧向平移揭示 | 广角 70° |
+| `drone_ascend` | 地面→鸟瞰上升 | 1.5→15 height |
+| `hero_tracking` | 跟拍后退拉开 | 3→7 distance |
+| `suspense_pan` | 水平慢摇悬疑 | 长焦 35° |
+| `god_eye` | 极高鸟瞰 + 慢自转 | height×6 |
+| `whip_pan` | 快速甩镜 | ease-in-out |
+
+**接口：** `apply_preset(name, scene_center, scene_radius) → [{t, pos, quat, fov}]`
+- 所有坐标相对于 `scene_center`，非绝对坐标
+- 四元数正确编码相机朝向 (始终看向主体)
+- 每个预设 ≥ 3 关键帧
+
+**代码已推送：** `afd992a` on main
+
+---
+
 ### [2026-05-09 首次握手]
 
 **macOS Claude Code:**
