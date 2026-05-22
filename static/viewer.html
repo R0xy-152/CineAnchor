@@ -1909,10 +1909,16 @@ function updateCornerPreview() {
 
   const origOverride = scene.overrideMaterial;
   const origTarget = renderer.getRenderTarget();
+  const trajVis = trajectoryGroup.visible;
+  const ghostVis = ghostCamera ? ghostCamera.visible : false;
+  trajectoryGroup.visible = false;
+  if (ghostCamera) ghostCamera.visible = false;
   scene.overrideMaterial = depthMaterial;
   renderer.setRenderTarget(depthRT);
   renderer.render(scene, camera);
   scene.overrideMaterial = origOverride;
+  trajectoryGroup.visible = trajVis;
+  if (ghostCamera) ghostCamera.visible = ghostVis;
   renderer.setRenderTarget(origTarget);
 
   cornerCanvas.width = 320; cornerCanvas.height = 200;
@@ -1954,9 +1960,15 @@ function animate() {
 
   // 全屏深度模式：直接在主画布渲染深度 (零开销)
   if (depthMode === 2) {
+    const trajVis = trajectoryGroup.visible;
+    const ghostVis = ghostCamera ? ghostCamera.visible : false;
+    trajectoryGroup.visible = false;
+    if (ghostCamera) ghostCamera.visible = false;
     scene.overrideMaterial = depthMaterial;
     renderer.render(scene, camera);
     scene.overrideMaterial = null;
+    trajectoryGroup.visible = trajVis;
+    if (ghostCamera) ghostCamera.visible = ghostVis;
   } else {
     renderer.render(scene, camera);
     // 角落预览：异步更新小窗
