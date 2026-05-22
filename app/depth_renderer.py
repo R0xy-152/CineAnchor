@@ -224,10 +224,15 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
             img = Image.open(f)
             arr = np.array(img)
             if len(arr.shape) == 3 and arr.shape[2] >= 3:
-                # 平均 RGB 通道 (降噪 + 保留深度变化)
-                gray = arr[:, :, :3].mean(axis=2).astype(np.uint8)
+                gray = arr[:, :, :3].mean(axis=2)
             else:
-                gray = arr
+                gray = arr.astype(np.float32)
+            # min-max 归一化到 0-255，让深度层次肉眼可见
+            gmin, gmax = gray.min(), gray.max()
+            if gmax > gmin:
+                gray = ((gray - gmin) / (gmax - gmin) * 255).astype(np.uint8)
+            else:
+                gray = gray.astype(np.uint8)
             Image.fromarray(gray).save(f)
     except ImportError:
         pass  # 如果没有 PIL, 保留原始 RGB PNG
