@@ -151,12 +151,11 @@ for fi, frame in enumerate(frames):
     cam.data.clip_start = 0.1
     cam.data.clip_end = far_clip * 2
 
-    # 瞄准: 计算从位置到目标的方向
-    dx, dy, dz = target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]
-    rot_z = math.atan2(dy, dx)
-    dist_xy = math.sqrt(dx*dx + dy*dy)
-    rot_x = -math.atan2(dz, dist_xy) if dist_xy > 0.001 else -math.pi / 2
-    cam.rotation_euler = (rot_x, 0, rot_z)
+    # 用 Blender 内置 track_quat — 正确跟踪上方向 (Z-up)
+    from mathutils import Vector
+    direction = Vector(target) - Vector(pos)
+    rot_quat = direction.to_track_quat('-Z', 'Z')
+    cam.rotation_euler = rot_quat.to_euler()
     scene.camera = cam
 
     frame_path = os.path.join(output_dir, f"frame_{fi:05d}.png")
