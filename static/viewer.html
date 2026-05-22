@@ -747,7 +747,8 @@ document.addEventListener('mousemove', (e) => {
 // ============================================================
 // API Client
 // ============================================================
-const API = window.location.origin;
+// 后端 API 地址: 同域默认, 分离部署时设为后端 URL
+const API = window.CINEANCHOR_API || window.location.origin;
 let apiOk = false;
 
 async function apiCall(method, path, body) {
