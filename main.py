@@ -1,7 +1,7 @@
 import os
 import sys
 import shutil
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +20,9 @@ from app.camera_path import (
 )
 from app.depth_renderer import render_depth_maps, render_preview_video
 from app.camera_presets import list_presets
+from app.room_manager import (
+    handle_room_ws, create_room, get_room_info, list_active_rooms
+)
 
 # --- 初始化数据库 ---
 init_db()
@@ -102,11 +105,16 @@ class RecordFrameRequest(BaseModel):
 class RenderVideoRequest(BaseModel):
     scene_id: str
     prompt: str
-    fps: int = 24
-    interpolation: int = 1
-    conditioning_scale: float = 1.7
-    num_steps: int = 25
+    fps: int = 12
+    interpolation: int = 3
+    conditioning_scale: float = 1.9
+    num_steps: int = 28
     seed: int = 42
+
+class CreateRoomRequest(BaseModel):
+    scene_id: str
+    display_name: str = "Host"
+    max_users: int = 32
 
 
 # ============================================================
@@ -362,6 +370,52 @@ async def api_demo_setup():
 @app.get("/api/camera-presets", summary="镜头预设列表")
 async def api_list_presets():
     return {"presets": list_presets()}
+
+
+# ============================================================
+# AnchorVerse — 多人房间 API
+# ============================================================
+@app.websocket("/ws/room/{room_id}")
+async def room_websocket(websocket: WebSocket, room_id: str):
+    """WebSocket 端点：多人房间的实时通信"""
+    await handle_room_ws(websocket, room_id)
+
+
+@app.post("/api/rooms", summary="创建多人房间")
+async def api_create_room(req: CreateRoomRequest):
+    """创建一个新房间，返回房间码和 WebSocket URL"""
+    room_id = create_room(req.scene_id)
+    return {
+        "room_id": room_id,
+        "ws_url": f"/ws/room/{room_id}",
+        "scene_id": req.scene_id,
+        "share_url": f"/static/multiplayer/world.html?room={room_id}",
+    }
+
+
+@app.get("/api/rooms", summary="活跃房间列表")
+async def api_list_rooms():
+    """列出所有当前活跃的房间"""
+    return {"rooms": list_active_rooms()}
+
+
+@app.get("/api/rooms/{room_id}", summary="房间详情")
+async def api_get_room(room_id: str):
+    """获取房间信息（用户数、场景等）"""
+    info = get_room_info(room_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="房间不存在或已关闭")
+    return info
+
+
+@app.delete("/api/rooms/{room_id}", summary="关闭房间")
+async def api_delete_room(room_id: str):
+    """强制关闭一个房间（仅房主可调用，MVP 阶段简化）"""
+    from app.room_manager import ROOMS
+    room = ROOMS.pop(room_id, None)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    return {"message": "房间已关闭"}
 
 
 # --- 运行 ---

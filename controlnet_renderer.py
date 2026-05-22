@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import os
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
 import cv2
@@ -23,10 +23,11 @@ class ControlNetRenderer:
     def __init__(self, controlnet_id="lllyasviel/control_v11f1p_sd15_depth",
                  base_model_id="runwayml/stable-diffusion-v1-5",
                  use_sdxl: bool = False,
-                 sdxl_resolution: int = 768):
+                 sdxl_resolution: int = 768,
+                 sd15_resolution: int = 576):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.use_sdxl = use_sdxl
-        self.target_size = sdxl_resolution if use_sdxl else 512
+        self.target_size = sdxl_resolution if use_sdxl else sd15_resolution
 
         if use_sdxl:
             controlnet_id = "diffusers/controlnet-depth-sdxl-1.0-small"
@@ -80,6 +81,12 @@ class ControlNetRenderer:
         enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
         return Image.fromarray(cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB))
 
+    def _polish_frame(self, image: Image.Image) -> Image.Image:
+        """轻量后处理，让预览帧更清晰，但不改变构图。"""
+        image = ImageEnhance.Contrast(image).enhance(1.08)
+        image = ImageEnhance.Sharpness(image).enhance(1.25)
+        return image.filter(ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=3))
+
     def render_rgb(self, depth_map_path: str, prompt: str, output_path: str,
                    num_inference_steps: int = 20, guidance_scale: float = 7.5,
                    seed: int = 42,
@@ -125,7 +132,7 @@ class ControlNetRenderer:
             )
 
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-        output.images[0].save(output_path)
+        self._polish_frame(output.images[0]).save(output_path)
         print(f"RGB image saved to: {output_path}")
 
         return output_path
@@ -229,7 +236,8 @@ class ControlNetRenderer:
                         guidance_scale: float = 7.5,
                         seed: int = 42,
                         controlnet_conditioning_scale: float = 1.0,
-                        enhance_depth: bool = False) -> list[str]:
+                        enhance_depth: bool = False,
+                        max_frames: int = 16) -> list[str]:
         """
         AnimateDiff + ControlNet 联合生成。
 
@@ -256,6 +264,11 @@ class ControlNetRenderer:
                                         controlnet_conditioning_scale)
 
         self._load_animatediff()
+
+        if len(depth_paths) > max_frames:
+            sample_idx = np.linspace(0, len(depth_paths) - 1, max_frames).round().astype(int)
+            depth_paths = [depth_paths[i] for i in sample_idx]
+            print(f"AnimateDiff frame budget: sampled {len(depth_paths)} frames from source sequence")
 
         # 加载并预处理所有深度图
         depth_images = []
@@ -295,7 +308,7 @@ class ControlNetRenderer:
         output_paths = []
         for i, frame in enumerate(output.frames[0]):
             out = os.path.join(output_dir, f"rgb_frame_{i:04d}.png")
-            frame.save(out)
+            self._polish_frame(frame).save(out)
             output_paths.append(out)
 
 

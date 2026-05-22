@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; background: #111; }
-    #canvas { display: block; }
+    #canvas { position: fixed; inset: 0; display: block; z-index: 0; }
 
     /* === Left Sidebar === */
     #left-sidebar {
@@ -166,7 +166,7 @@
     .demo-step { display: flex; align-items: center; gap: 8px; font-size: 13px; }
     .step-num { width: 20px; height: 20px; border-radius: 50%; background: #7c3aed; color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     #depth-video-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 50; display: none; align-items: center; justify-content: center; }
-    #depth-preview-corner { position: fixed; bottom: 90px; right: 280px; width: 256px; height: 160px; background: #000; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; overflow: hidden; z-index: 8; }
+    #depth-preview-corner { position: fixed; bottom: 90px; right: 280px; width: 256px; height: 160px; background: #000; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; overflow: hidden; z-index: 8; display: none; }
     #depth-preview-corner .label { position: absolute; top: 2px; left: 4px; font-size: 9px; color: #4ade80; font-family: monospace; z-index: 2; }
     #depth-overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: none; background: rgba(0,0,0,0.4); }
     #depth-overlay canvas { width: 100%; height: 100%; }
@@ -308,11 +308,19 @@
 <!-- Timeline -->
 <div id="timeline-wrap">
   <div id="timeline-controls">
-    <button onclick="tlTogglePlay()" id="btn-tl-play">Play</button>
-    <button onclick="tlStop()">Stop</button>
-    <span id="tl-time" style="font-size:10px;color:#666">0:00 / 0:00</span>
+    <button onclick="tlTogglePlay()" id="tl-play">Play</button>
+    <button onclick="tlToggleLoop()" id="tl-loop" class="active">Loop</button>
+    <button onclick="tlGoStart()">Start</button>
+    <button onclick="tlGoEnd()">End</button>
+    <select id="tl-easing" onchange="tlSetEasing()" style="font-size:10px;padding:1px 3px;background:rgba(255,255,255,0.05);color:#ccc;border:1px solid rgba(255,255,255,0.1);border-radius:3px">
+      <option value="linear">Linear</option>
+      <option value="ease-in">Ease In</option>
+      <option value="ease-out">Ease Out</option>
+      <option value="ease-in-out">Ease In-Out</option>
+    </select>
+    <span id="tl-time" style="font-size:10px;color:#666;margin-left:auto">0.0 / 0.0 s</span>
   </div>
-  <div id="timeline"></div>
+  <canvas id="timeline-canvas"></canvas>
 </div>
 
 <!-- Demo overlay -->
@@ -365,7 +373,14 @@
 <div id="depth-preview-corner"><span class="label">DEPTH</span><canvas id="depth-canvas-corner"></canvas></div>
 <div id="depth-overlay"><canvas id="depth-canvas-overlay"></canvas></div>
 
-
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -929,9 +944,14 @@ async function pollSceneStatus(id, btn, bar, elapsed, prog, start) {
 let keyframes = [];  // [{t: float, pos: [x,y,z], quat: [x,y,z,w], fov: float}]
 
 function getPose() {
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const target = camMode === 'orbit'
+    ? controls.target.clone()
+    : camera.position.clone().addScaledVector(forward, 5);
   return {
     pos: [camera.position.x, camera.position.y, camera.position.z],
     quat: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w],
+    target: [target.x, target.y, target.z],
     fov: camera.fov,
   };
 }
@@ -1621,6 +1641,7 @@ function tlStop() {
   hideGhostCamera();
   tlRender();
 }
+window.tlStop = tlStop;
 
 function tlSeekTo(time) {
   tlCurrentTime = time;

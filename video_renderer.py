@@ -46,6 +46,9 @@ class VideoRenderer:
                 path = os.path.abspath(p).replace("\\", "/")
                 f.write(f"file '{path}'\n")
                 f.write(f"duration {frame_duration:.8f}\n")
+            # concat demuxer ignores the final duration unless the last file is repeated.
+            last_path = os.path.abspath(frame_paths[-1]).replace("\\", "/")
+            f.write(f"file '{last_path}'\n")
 
         cmd = [
             "ffmpeg", "-y",
@@ -58,7 +61,10 @@ class VideoRenderer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
         os.remove(concat_file)
 
         if result.returncode != 0:
@@ -191,10 +197,10 @@ class VideoRenderer:
     # ---- 完整管线 ----
 
     def render_pipeline(self, depth_map_paths: list[str], prompt: str,
-                        scene_id: str, fps: int = 24,
-                        interpolation: int = 1,
-                        conditioning_scale: float = 1.7,
-                        num_steps: int = 25, seed: int = 42) -> str:
+                        scene_id: str, fps: int = 12,
+                        interpolation: int = 3,
+                        conditioning_scale: float = 1.9,
+                        num_steps: int = 28, seed: int = 42) -> str:
         """深度图序列 → RGB 帧 → (插值) → MP4 视频（完整管线）
 
         Args:

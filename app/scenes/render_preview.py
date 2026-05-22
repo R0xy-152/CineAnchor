@@ -39,7 +39,7 @@ if not args:
     print("ERROR: 需要 JSON 输入文件路径")
     sys.exit(1)
 
-with open(args[0]) as f:
+with open(args[0], encoding="utf-8") as f:
     inp = json.load(f)
 
 glb_path = inp["glb_path"]
@@ -71,10 +71,14 @@ scene = bpy.context.scene
 scene.render.engine = engine
 scene.render.resolution_x = res_x
 scene.render.resolution_y = res_y
+scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = 'PNG'
 scene.render.image_settings.color_mode = 'RGB'
 scene.render.image_settings.color_depth = '8'
 scene.view_settings.view_transform = 'Standard'
+scene.view_settings.look = 'Medium High Contrast'
+scene.view_settings.exposure = 0
+scene.view_settings.gamma = 1
 
 if engine == 'CYCLES':
     scene.cycles.samples = samples
@@ -89,6 +93,15 @@ if engine == 'CYCLES':
     scene.cycles.device = 'GPU'
 else:
     scene.eevee.taa_render_samples = samples
+    scene.eevee.taa_samples = max(16, samples // 2)
+    if hasattr(scene.eevee, "use_gtao"):
+        scene.eevee.use_gtao = True
+        scene.eevee.gtao_distance = 4
+        scene.eevee.gtao_factor = 1.2
+    if hasattr(scene.eevee, "shadow_cube_size"):
+        scene.eevee.shadow_cube_size = '2048'
+    if hasattr(scene.eevee, "shadow_cascade_size"):
+        scene.eevee.shadow_cascade_size = '2048'
 
 # ── 逐帧渲染 ──────────────────────────────────────────────
 for fi, frame in enumerate(frames):

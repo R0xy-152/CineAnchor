@@ -81,7 +81,10 @@ def _interpolate_keyframes(keyframes: list[dict], fps: int) -> list[dict]:
         if idx >= len(keyframes) - 1:
             # 已经超出最后一个关键帧
             kf = keyframes[-1]
-            frames.append({"t": t, "pos": list(kf["pos"]), "quat": list(kf["quat"]), "fov": kf.get("fov", 55)})
+            frame = {"t": t, "pos": list(kf["pos"]), "quat": list(kf["quat"]), "fov": kf.get("fov", 55)}
+            if "target" in kf:
+                frame["target"] = list(kf["target"])
+            frames.append(frame)
             continue
 
         k0 = keyframes[max(0, idx - 1)]
@@ -101,6 +104,9 @@ def _interpolate_keyframes(keyframes: list[dict], fps: int) -> list[dict]:
         # 对每个分量插值
         pos = [_catmull_rom(k0["pos"][i], k1["pos"][i], k2["pos"][i], k3["pos"][i], local_t) for i in range(3)]
         quat = [_catmull_rom(k0["quat"][i], k1["quat"][i], k2["quat"][i], k3["quat"][i], local_t) for i in range(4)]
+        target = None
+        if all("target" in k for k in (k0, k1, k2, k3)):
+            target = [_catmull_rom(k0["target"][i], k1["target"][i], k2["target"][i], k3["target"][i], local_t) for i in range(3)]
         fov = _catmull_rom(
             k0.get("fov", 55), k1.get("fov", 55),
             k2.get("fov", 55), k3.get("fov", 55), local_t
@@ -111,7 +117,10 @@ def _interpolate_keyframes(keyframes: list[dict], fps: int) -> list[dict]:
         if qlen > 0.001:
             quat = [v / qlen for v in quat]
 
-        frames.append({"t": t, "pos": pos, "quat": quat, "fov": fov})
+        frame = {"t": t, "pos": pos, "quat": quat, "fov": fov}
+        if target is not None:
+            frame["target"] = target
+        frames.append(frame)
 
     return frames
 
@@ -130,6 +139,22 @@ def _three_to_blender_pose(three_pos, three_target):
     tz = three_target[1]
 
     return (bx, by, bz), (tx, ty, tz)
+
+
+def _target_from_quat(three_pos, three_quat, target_dist: float = 5.0):
+    """旧 camera path 没有 target 字段时，从 Three.js 相机四元数估算 look-at 目标。"""
+    qx, qy, qz, qw = three_quat
+    fx = -2 * (qx * qz + qw * qy)
+    fy = -2 * (qy * qz - qw * qx)
+    fz = -1 + 2 * (qx * qx + qy * qy)
+    flen = math.sqrt(fx * fx + fy * fy + fz * fz)
+    if flen < 0.001:
+        return [three_pos[0], three_pos[1], three_pos[2] - target_dist]
+    return [
+        three_pos[0] + fx / flen * target_dist,
+        three_pos[1] + fy / flen * target_dist,
+        three_pos[2] + fz / flen * target_dist,
+    ]
 
 
 def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> dict:
@@ -167,7 +192,8 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
     # 坐标转换
     blender_poses = []
     for f in frames:
-        pos, target = _three_to_blender_pose(f["pos"], f.get("target", f["pos"]))
+        target3 = f.get("target") or _target_from_quat(f["pos"], f["quat"])
+        pos, target = _three_to_blender_pose(f["pos"], target3)
         blender_poses.append({
             "t": f["t"],
             "position": list(pos),
@@ -272,7 +298,8 @@ def render_preview_video(camera_path_id: str) -> dict:
 
     blender_poses = []
     for f in frames:
-        pos, target = _three_to_blender_pose(f["pos"], f.get("target", f["pos"]))
+        target3 = f.get("target") or _target_from_quat(f["pos"], f["quat"])
+        pos, target = _three_to_blender_pose(f["pos"], target3)
         blender_poses.append({
             "t": f["t"],
             "position": list(pos),
@@ -289,10 +316,10 @@ def render_preview_video(camera_path_id: str) -> dict:
         "glb_path": model_path,
         "output_dir": str(out_dir),
         "frames": blender_poses,
-        "resolution_x": 640,
-        "resolution_y": 480,
-        "engine": "CYCLES",
-        "samples": 16,
+        "resolution_x": 1024,
+        "resolution_y": 768,
+        "engine": "BLENDER_EEVEE",
+        "samples": 64,
     }
 
     input_path = Path(tempfile.gettempdir()) / f"cineanchor_preview_{camera_path_id}.json"
