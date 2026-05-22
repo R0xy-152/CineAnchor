@@ -211,16 +211,32 @@ let isJumping = false;
 let verticalVelocity = 0;
 
 window.addEventListener('keydown', e => {
-  keys[e.code] = true;
-  if (e.code === 'KeyT' && isPointerLocked) {
+  // 聊天输入框激活时不处理移动/快捷键
+  const chatting = document.activeElement?.id === 'chat-input';
+  if (!chatting) {
+    keys[e.code] = true;
+  }
+  if (e.code === 'KeyT' && isPointerLocked && !chatting) {
+    e.preventDefault();
     chatUI.toggle();
   }
-  if (e.code === 'KeyE' && isPointerLocked && !chatUI._container || chatUI._container?.style?.display === 'none') {
+  if (e.code === 'KeyE' && isPointerLocked && !chatting) {
     const active = editor.toggle();
     showToast(active ? '编辑模式: 开 — 左键放置 右键删除' : '编辑模式: 关');
   }
   if (e.code === 'Escape' && isPointerLocked) {
     document.exitPointerLock();
+  }
+  // Enter 发送聊天
+  if (e.code === 'Enter' && chatting) {
+    const text = document.getElementById('chat-input')?.value?.trim();
+    if (text) {
+      client.send({ type: 'chat_message', text });
+      chatUI.addMessage(displayName, text);
+      document.getElementById('chat-input').value = '';
+      chatUI.hide();
+      renderer.domElement.requestPointerLock();
+    }
   }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -293,6 +309,11 @@ const editor = new EditorMode(
 chatUI.mount((text) => {
   client.send({ type: 'chat_message', text });
   chatUI.addMessage(displayName, text);
+  // 发送后自动关闭聊天，返回游戏
+  setTimeout(() => {
+    chatUI.hide();
+    if (isPointerLocked) renderer.domElement.requestPointerLock();
+  }, 100);
 });
 presence.mount();
 
