@@ -1780,7 +1780,12 @@ function loadDepthFrame(idx) {
   img.onload = () => {
     canvas.width = img.width || 512;
     canvas.height = img.height || 384;
+    // Blender 渲染 (bottom-left origin) → Canvas (top-left origin) 需要 Y 翻转
+    ctx.save();
+    ctx.translate(0, canvas.height);
+    ctx.scale(1, -1);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
   };
   img.onerror = () => { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvas.width, canvas.height); };
   img.src = API + _depthFrameUrls[idx];
