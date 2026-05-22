@@ -204,33 +204,59 @@
 </div>
 
 <script>
-// 加载已有场景
+// 加载场景 Gallery：优先显示已有场景，补充世界模板
 (async function() {
+  const grid = document.getElementById('scenes-grid');
+  const cards = [];
+
+  // 加载世界模板
+  try {
+    const tplRes = await fetch('/api/world-templates');
+    const tplData = await tplRes.json();
+    if (tplData.templates && tplData.templates.length > 0) {
+      const icons = { fantasy: '🏰', 'sci-fi': '🚀', nature: '🌿', abstract: '💜' };
+      for (const t of tplData.templates) {
+        cards.push({
+          title: t.name,
+          desc: t.description,
+          meta: t.category,
+          icon: icons[t.category] || '🌍',
+          link: `/static/multiplayer/world.html?template=${t.id}`,
+        });
+      }
+    }
+  } catch (e) { /* 后端未启动 */ }
+
+  // 加载已有生成场景
   try {
     const r = await fetch('/api/scenes?status=ready');
     const data = await r.json();
-    const grid = document.getElementById('scenes-grid');
     if (data.scenes && data.scenes.length > 0) {
-      grid.innerHTML = data.scenes.map(s => `
-        <div class="work-card">
-          <a href="/static/multiplayer/world.html?scene=${s.id}" style="display:block; text-decoration:none; color:inherit">
-            <div class="thumb">
-              ${s.thumbnail_path
-                ? `<img src="${s.thumbnail_path.replace('/Users/ming/Projects/CineAnchor/', '/')}" alt="">`
-                : '<span style="font-size:40px">🎬</span>'}
-            </div>
-          </a>
-          <div class="info">
-            <h4>${s.user_prompt?.slice(0, 40) || s.id}</h4>
-            <p class="prompt">${s.template || '自定义'} · ${s.status}</p>
-            <p class="meta">${new Date(s.created_at).toLocaleDateString('zh-CN')}</p>
-            <a href="/static/multiplayer/world.html?scene=${s.id}" class="btn-room" style="display:block;text-align:center;padding:6px;margin-top:8px;border-radius:6px;border:1px solid #7c3aed;color:#7c3aed;font-size:12px;text-decoration:none">进入世界 →</a>
-          </div>
-        </div>
-      `).join('');
+      for (const s of data.scenes) {
+        cards.push({
+          title: s.user_prompt?.slice(0, 40) || s.id,
+          desc: `${s.template || '自定义'} · ${s.status}`,
+          meta: new Date(s.created_at).toLocaleDateString('zh-CN'),
+          icon: s.thumbnail_path
+            ? `<img src="${s.thumbnail_path.replace('/Users/ming/Projects/CineAnchor/', '/')}" alt="">`
+            : '🎬',
+          link: `/static/multiplayer/world.html?scene=${s.id}`,
+        });
+      }
     }
-  } catch (e) {
-    // 后端未启动
+  } catch (e) { /* 后端未启动 */ }
+
+  if (cards.length > 0) {
+    grid.innerHTML = cards.map(c => `
+      <a href="${c.link}" class="work-card">
+        <div class="thumb">${c.icon.startsWith('<img') ? c.icon : `<span style="font-size:40px">${c.icon}</span>`}</div>
+        <div class="info">
+          <h4>${c.title}</h4>
+          <p class="prompt">${c.desc}</p>
+          <p class="meta">${c.meta}</p>
+        </div>
+      </a>
+    `).join('');
   }
 })();
 </script>

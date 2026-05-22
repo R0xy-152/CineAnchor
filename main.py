@@ -10,7 +10,7 @@ from typing import Optional
 import uvicorn
 
 from app.config import MODELS_DIR, VIDEOS_DIR, DEPTH_DIR, RENDER_MODE
-from app.database import init_db
+from app.database import init_db, seed_world_templates, list_world_templates, get_world_template
 from app.scene_manager import (
     create_scene, check_and_update_scene, get_scene, list_scenes,
     create_scene_with_blender,
@@ -26,6 +26,7 @@ from app.room_manager import (
 
 # --- 初始化数据库 ---
 init_db()
+seed_world_templates()
 
 # --- 渲染引擎检测 ---
 render_mode: str = "unknown"
@@ -115,6 +116,7 @@ class CreateRoomRequest(BaseModel):
     scene_id: str
     display_name: str = "Host"
     max_users: int = 32
+    world_template: str = "floating_island"
 
 
 # ============================================================
@@ -384,11 +386,12 @@ async def room_websocket(websocket: WebSocket, room_id: str):
 @app.post("/api/rooms", summary="创建多人房间")
 async def api_create_room(req: CreateRoomRequest):
     """创建一个新房间，返回房间码和 WebSocket URL"""
-    room_id = create_room(req.scene_id)
+    room_id = create_room(req.scene_id, req.world_template)
     return {
         "room_id": room_id,
         "ws_url": f"/ws/room/{room_id}",
         "scene_id": req.scene_id,
+        "world_template": req.world_template,
         "share_url": f"/static/multiplayer/world.html?room={room_id}",
     }
 
@@ -416,6 +419,22 @@ async def api_delete_room(room_id: str):
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
     return {"message": "房间已关闭"}
+
+
+# ============================================================
+# World Templates API
+# ============================================================
+@app.get("/api/world-templates", summary="世界模板列表")
+async def api_list_world_templates(category: str = None):
+    return {"templates": list_world_templates(category)}
+
+
+@app.get("/api/world-templates/{template_id}", summary="世界模板详情")
+async def api_get_world_template(template_id: str):
+    tpl = get_world_template(template_id)
+    if not tpl:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    return tpl
 
 
 # --- 运行 ---

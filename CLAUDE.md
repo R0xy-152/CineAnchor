@@ -1,80 +1,349 @@
-# CineAnchor — 跨设备协作指引
+# AnchorVerse — Project Memory for Claude Code
 
-## 项目简介
+## Language
 
-CineAnchor 是一个 AI 视频生成系统，用 3D Gaussian Splatting (3DGS) 作为空间锚点控制扩散模型渲染。技术栈：gsplat + ControlNet-Depth + FastAPI。
+用户是中文母语者。所有对话、注释、文档使用中文。
 
-## 双设备分工
+技术术语采用 **中文 + English** 并列格式，例如：
+- "用 WebSocket（WebSocket）做位置同步（position sync）"
+- "深度图（depth map）通过 3DGS（3D Gaussian Splatting）渲染"
 
-| 设备 | 职责 |
-|------|------|
-| **macOS (Apple M5)** — 当前机器 | API 开发、代码编辑、模拟测试、前端取景器、Git 管理 |
-| **Windows (NVIDIA GPU)** — 你 | 真实 3DGS 渲染、深度图批量生成、ControlNet 推理 |
+代码标识符（变量名、函数名、类名）保持英文原文。
 
-## 协作协议
+## Product Identity
 
-1. **代码同步**：macOS 写代码 → `git push` → 你 `git pull` 后执行
-2. **渲染任务**：macOS 给你下达渲染指令 → 你执行 → `git push` 产出（小文件）或 `rsync` 回传（大文件）
-3. **你来写代码时**：直接改 → `git push` → 告诉 macOS 那边 `git pull`
-4. **通信**：你的用户会给 macOS 那边的 Claude Code 传达消息，反之亦然。如果需要交流，把你的信息写在 `COLLAB_MSG.md` 里，macOS 那边会读到。
+AnchorVerse is a browser-native 3D multiplayer social space focused on lightweight tabletop gaming and shared virtual presence.
 
-## Windows 环境配置
+It is NOT:
+- a VRChat clone
+- a metaverse platform
+- a sandbox MMO
+- a general-purpose game engine
 
-```bash
-# 1. 克隆仓库 (如果还没克隆)
-git clone git@github.com:R0xy-152/CineAnchor.git
-cd CineAnchor
+The core product is:
 
-# 2. 创建 conda 环境
-conda create -n cineanchor python=3.10 -y
-conda activate cineanchor
+> "A zero-install browser space where friends can instantly gather, talk, play tabletop games, and manipulate shared objects inside a lightweight 3D world."
 
-# 3. PyTorch (CUDA 12.1)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+Every product and engineering decision must reinforce this core identity.
 
-# 4. 核心依赖
-pip install plyfile pillow numpy fastapi uvicorn pydantic
+---
 
-# 5. gsplat (预编译 wheel, 项目中可能有, 检查一下)
-# 如果项目根目录有 gsplat-*.whl:
-pip install gsplat-1.4.0+pt24cu121-cp310-cp310-win_amd64.whl
-# 如果没有, 从源码编译:
-# pip install -e gsplat/
+# Core Product Goal
 
-# 6. 验证 CUDA
-python -c "import torch; print('CUDA:', torch.cuda.is_available())"
-```
+The primary use case is:
 
-## 场景数据
+- friends joining a room through a link or room code
+- immediately entering a shared 3D world
+- talking naturally through voice chat
+- interacting with physicalized shared tabletop objects
+- playing tabletop games together
 
-PLY 文件不进 Git (太大)。每台设备本地生成：
+The product must feel:
+- immediate
+- lightweight
+- frictionless
+- spatial
+- social
+- expressive
 
-```bash
-python generate_cube_splat.py    # 生成 test_scene.ply (20000 个高斯点)
-```
+The browser is the platform.
+Instant access is a core product advantage.
 
-## 当前进度
+---
 
-- ✅ API 骨架 (main.py) — 路由完整
-- ✅ 相机 → 深度图 pipeline (camera_to_depth_pipeline.py)
-- ✅ real_3dgs.py view_matrix bug 已修复
-- ✅ simulated_3dgs.py (macOS 开发用)
-- ❌ 最小闭环未验证 — 从未在有效 PLY 上跑通过 gsplat 渲染
-- ❌ ControlNet 扩散渲染 — simulated_diffusion.py 只是占位符
+# Target Users
 
-## 你的默认任务
+Priority order:
 
-**当没有新的指令时，你的工作是把 NVIDIA GPU 环境配置好，确保项目能跑通以下最小闭环：**
+## P0 — Tabletop / TRPG Players
 
-```
-generate_cube_splat.py → test_scene.ply
-    → real_3dgs.py → real_depth_maps/*.png (肉眼可辨认的深度图)
-    → (未来) camera_to_depth_pipeline.py → 完整 Phase 1 流程
-```
+Primary audience.
 
-## 重要约定
+Use cases:
+- D&D
+- dice rolling
+- shared tabletop interaction
+- card games
+- chess
+- roleplay sessions
+- social game nights
 
-- **不要在 Windows 上修改 macOS 正在开发的代码文件**（main.py, real_3dgs.py 等），除非用户明确要求
-- **渲染产出放在本地输出目录**（.gitignore 已排除），不要提交到 Git
-- **遇到问题先读 COLLAB_MSG.md**，macOS 那边的 Claude Code 可能留了消息
-- **做完任务后，在 COLLAB_MSG.md 里写一行结果**，格式：`[时间] 任务描述 → 结果`
+This audience drives all MVP decisions.
+
+If a feature does not improve this use case, question whether it should exist.
+
+---
+
+## P1 — Casual Social Users
+
+Secondary audience.
+
+Use cases:
+- hanging out
+- talking
+- exploring worlds
+- building small shared scenes
+
+These users are important, but the product should never drift toward "social MMO".
+
+---
+
+## P2 — Creators
+
+Long-term audience.
+
+Use cases:
+- AI-generated worlds
+- object sharing
+- UGC content
+
+Creator tooling is NOT the current priority.
+
+---
+
+# Product Philosophy
+
+AnchorVerse succeeds through:
+- low friction
+- immediate multiplayer presence
+- tactile object interaction
+- lightweight immersion
+- social spontaneity
+
+NOT through:
+- massive scale
+- hyper realism
+- AAA graphics
+- complex progression systems
+- large persistent economies
+
+Avoid feature creep aggressively.
+
+---
+
+# MVP Principles
+
+The MVP is already feature-rich.
+
+Before adding any new system, always ask:
+
+1. Does this improve tabletop/social interaction?
+2. Does this reduce friction?
+3. Does this increase immediacy?
+4. Would real users notice and care?
+5. Is this more valuable than mobile support or sharing improvements?
+
+If the answer is unclear, do not build it yet.
+
+---
+
+# Explicit Non-Goals
+
+Do NOT proactively introduce:
+
+- VR support
+- AR support
+- blockchain/NFT systems
+- open-world MMO architecture
+- large-scale persistence systems
+- procedural infinite worlds
+- advanced physics simulation
+- vehicle systems
+- survival crafting systems
+- RPG progression systems
+- enterprise backend infrastructure
+- Kubernetes migration
+- microservices architecture
+- complex auth systems
+- native mobile app packaging
+- React migration
+- game-engine rewrites
+
+The current stack is intentional.
+
+---
+
+# Technical Philosophy
+
+The current architecture is intentionally lightweight.
+
+Tech stack:
+- Three.js ES Modules
+- Native DOM UI
+- FastAPI
+- WebSocket synchronization
+- SQLite persistence
+- Browser-native interaction
+
+Avoid unnecessary abstractions.
+
+Prefer:
+- understandable code
+- debuggable systems
+- minimal dependencies
+- browser-native APIs
+- direct architecture
+
+Do not introduce frameworks unless they solve a proven bottleneck.
+
+---
+
+# Multiplayer Philosophy
+
+Multiplayer interaction quality matters more than graphics quality.
+
+Prioritize:
+- synchronization clarity
+- interaction responsiveness
+- player awareness
+- low friction joining
+- shared object consistency
+
+Important:
+Players should always understand:
+- where others are
+- who is speaking
+- what object is being manipulated
+- whose turn it is
+- what changed in the room
+
+---
+
+# UX Philosophy
+
+The UI should feel:
+- restrained
+- spatial
+- cinematic
+- adult
+- minimal
+
+Visual references:
+- VRChat simplicity
+- Notion restraint
+- sci-fi control surfaces
+- multiplayer game HUDs
+
+Avoid:
+- mobile-app aesthetics
+- oversized buttons
+- cluttered overlays
+- excessive menus
+- cartoon styling
+
+The world itself is the interface.
+
+---
+
+# AI Feature Philosophy
+
+AI exists to reduce friction and increase creativity.
+
+AI should:
+- accelerate world/object creation
+- help users express ideas quickly
+- preserve multiplayer spontaneity
+
+AI should NOT:
+- dominate the experience
+- replace interaction
+- generate excessive complexity
+- interrupt social flow
+
+AnchorVerse is a social space first, AI tool second.
+
+---
+
+# Performance Philosophy
+
+Performance is a product feature.
+
+Prioritize:
+- fast loading
+- low memory usage
+- stable frame pacing
+- browser compatibility
+- graceful degradation
+
+Do not introduce visually impressive systems that harm usability.
+
+A stable 60 FPS lightweight experience is preferable to cinematic rendering.
+
+---
+
+# Coding Expectations
+
+When implementing features:
+
+1. First explain product value.
+2. Explain why the feature belongs in the MVP.
+3. Identify risks of feature creep.
+4. Propose the simplest implementation.
+5. Then write code.
+
+For large systems:
+- prefer iteration over complete rewrites
+- preserve existing architecture when possible
+- avoid premature optimization
+
+---
+
+# Decision Hierarchy
+
+When tradeoffs occur, prioritize in this order:
+
+1. Multiplayer usability
+2. Friction reduction
+3. Simplicity
+4. Stability
+5. Performance
+6. Visual polish
+7. Architectural purity
+
+Do not optimize for engineering elegance at the expense of product clarity.
+
+---
+
+# Current Highest Priorities
+
+Current MVP priorities:
+
+1. Mobile browser usability
+2. Room invitation flow
+3. Join/share friction reduction
+4. Interaction clarity
+5. Social usability improvements
+6. Stability and bug fixing
+
+NOT priorities:
+- large new systems
+- visual overhauls
+- infrastructure rewrites
+
+---
+
+# Claude Behavior Expectations
+
+Do not blindly implement every request.
+
+Act like:
+- a senior product engineer
+- a multiplayer game prototyper
+- an indie technical product lead
+
+Challenge unnecessary complexity.
+
+If a requested feature risks product drift, explain why.
+
+Always think:
+- "Does this strengthen the core fantasy?"
+- "Would real users actually use this?"
+- "Is this worth the complexity cost?"
+
+AnchorVerse should feel:
+- immediate
+- social
+- tactile
+- lightweight
+- browser-native
+- frictionless

@@ -1,8 +1,9 @@
 /**
  * AnchorVerse — 第一人称编辑器
- * 物件拾取 / 放置 / 删除 + 物品栏 UI
+ * 物件拾取 / 放置 / 删除 + 物品栏 UI + AI 生成
  */
 import * as THREE from 'three';
+import { generateFromPrompt } from './ai-generator.js';
 
 // ── 预置物件库 ────────────────────────────────────────────
 const OBJECT_LIBRARY = [
@@ -32,8 +33,19 @@ const OBJECT_LIBRARY = [
     { key: 'bush', name: '灌木', geom: () => new THREE.SphereGeometry(0.25, 8, 6), color: '#3a6b2a', cat: '自然' },
 
     // 桌游
+    { key: 'chess_board', name: '棋盘', geom: () => _chessBoard(), color: '#f0d9b5', cat: '桌游' },
     { key: 'chess_pawn_white', name: '白兵', geom: () => _chessPawn(), color: '#f0f0e0', cat: '桌游' },
     { key: 'chess_pawn_black', name: '黑兵', geom: () => _chessPawn(), color: '#2a2a2a', cat: '桌游' },
+    { key: 'chess_rook_white', name: '白车', geom: () => _rook(), color: '#f0f0e0', cat: '桌游' },
+    { key: 'chess_rook_black', name: '黑车', geom: () => _rook(), color: '#2a2a2a', cat: '桌游' },
+    { key: 'chess_knight_white', name: '白马', geom: () => _knight(), color: '#f0f0e0', cat: '桌游' },
+    { key: 'chess_knight_black', name: '黑马', geom: () => _knight(), color: '#2a2a2a', cat: '桌游' },
+    { key: 'chess_bishop_white', name: '白象', geom: () => _bishop(), color: '#f0f0e0', cat: '桌游' },
+    { key: 'chess_bishop_black', name: '黑象', geom: () => _bishop(), color: '#2a2a2a', cat: '桌游' },
+    { key: 'chess_queen_white', name: '白后', geom: () => _queen(), color: '#f0f0e0', cat: '桌游' },
+    { key: 'chess_queen_black', name: '黑后', geom: () => _queen(), color: '#2a2a2a', cat: '桌游' },
+    { key: 'chess_king_white', name: '白王', geom: () => _king(), color: '#f0f0e0', cat: '桌游' },
+    { key: 'chess_king_black', name: '黑王', geom: () => _king(), color: '#2a2a2a', cat: '桌游' },
     { key: 'dice', name: '骰子', geom: () => new THREE.BoxGeometry(0.15, 0.15, 0.15), color: '#ffffff', cat: '桌游' },
     { key: 'card', name: '卡牌', geom: () => new THREE.BoxGeometry(0.2, 0.005, 0.28), color: '#ffffff', cat: '桌游' },
     { key: 'poker_chip_red', name: '筹码', geom: () => new THREE.CylinderGeometry(0.1, 0.1, 0.03, 24), color: '#cc2222', cat: '桌游' },
@@ -155,6 +167,105 @@ function _chessPawn() {
     return g;
 }
 
+function _chessBoard() {
+    const g = new THREE.Group();
+    const tileSize = 0.2;
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            const isWhite = (row + col) % 2 === 0;
+            const tile = new THREE.Mesh(
+                new THREE.BoxGeometry(tileSize, 0.02, tileSize),
+                new THREE.MeshStandardMaterial({ color: isWhite ? 0xf0d9b5 : 0xb58863, roughness: 0.6 })
+            );
+            tile.position.set((col - 3.5) * tileSize, 0, (row - 3.5) * tileSize);
+            g.add(tile);
+        }
+    }
+    const borderW = 8 * tileSize + 0.12;
+    const border = new THREE.Mesh(
+        new THREE.BoxGeometry(borderW, 0.04, borderW),
+        new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.5 })
+    );
+    border.position.y = -0.03;
+    g.add(border);
+    return g;
+}
+
+function _rook() {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.04, 12));
+    base.position.y = 0.02; g.add(base);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 12));
+    body.position.y = 0.09; g.add(body);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 12));
+    top.position.y = 0.16; g.add(top);
+    for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.02));
+        b.position.set(Math.cos(a) * 0.05, 0.19, Math.sin(a) * 0.05);
+        g.add(b);
+    }
+    return g;
+}
+
+function _knight() {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.04, 12));
+    base.position.y = 0.02; g.add(base);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.08, 12));
+    body.position.y = 0.08; g.add(body);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.04));
+    head.position.set(0.03, 0.13, 0);
+    head.rotation.z = 0.3;
+    g.add(head);
+    return g;
+}
+
+function _bishop() {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.04, 12));
+    base.position.y = 0.02; g.add(base);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.1, 12));
+    body.position.y = 0.09; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 4));
+    head.position.y = 0.16; g.add(head);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 3));
+    tip.position.y = 0.2; g.add(tip);
+    return g;
+}
+
+function _queen() {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.05, 12));
+    base.position.y = 0.025; g.add(base);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.12, 12));
+    body.position.y = 0.11; g.add(body);
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.04, 12));
+    crown.position.y = 0.19; g.add(crown);
+    for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.012, 4, 3));
+        p.position.set(Math.cos(a) * 0.045, 0.22, Math.sin(a) * 0.045);
+        g.add(p);
+    }
+    return g;
+}
+
+function _king() {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.05, 12));
+    base.position.y = 0.025; g.add(base);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.14, 12));
+    body.position.y = 0.12; g.add(body);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.04, 12));
+    head.position.y = 0.21; g.add(head);
+    const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.015, 0.01));
+    crossH.position.y = 0.24; g.add(crossH);
+    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.04, 0.01));
+    crossV.position.y = 0.25; g.add(crossV);
+    return g;
+}
+
 function _ceilingLamp() {
     const g = new THREE.Group();
     const shade = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.25, 12, 1, true));
@@ -182,12 +293,13 @@ function _floorLamp() {
 // ── 编辑器 ────────────────────────────────────────────────
 
 class EditorMode {
-    constructor(scene, camera, renderer, onPlace, onRemove) {
+    constructor(scene, camera, renderer, onPlace, onRemove, onMove) {
         this.scene = scene;
         this.camera = camera;
         this.renderer = renderer;
-        this._onPlace = onPlace;     // (assetKey, position, rotation) => WS
+        this._onPlace = onPlace;     // (assetKey, position, rotation, objId) => WS
         this._onRemove = onRemove;   // (objId) => WS
+        this._onMove = onMove;       // (objId, position, rotation) => WS
 
         this.active = false;
         this.selectedAsset = 'cube_default';
@@ -209,6 +321,13 @@ class EditorMode {
         /** 物品栏 */
         this._inventoryEl = null;
         this._inventoryVisible = false;
+
+        /** 抓取模式 */
+        this._grabActive = false;
+        this._grabbedObj = null;
+        this._grabbedObjId = null;
+        this._grabDistance = 3;
+        this._grabHighlight = null;   // 高亮环
 
         this._initGhost();
         this._initMouse();
@@ -259,6 +378,12 @@ class EditorMode {
 
     /** 每帧调用 */
     tick() {
+        // 抓取模式处理
+        if (this._grabActive) {
+            this._tickGrab();
+            return;
+        }
+
         if (!this.active || !this._ghost) return;
 
         this._raycaster.setFromCamera(this._mouse, this.camera);
@@ -289,7 +414,7 @@ class EditorMode {
 
     /** 点击放置物件 */
     placeSelected() {
-        if (!this.active || !this._ghost || !this._ghostVisible) return;
+        if (!this.active || !this._ghost || !this._ghostVisible) return null;
 
         const objId = 'obj_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
         const position = this._ghost.position.clone();
@@ -302,7 +427,7 @@ class EditorMode {
         this.placedObjects.set(objId, mesh);
 
         if (this._onPlace) {
-            this._onPlace(this.selectedAsset, position.toArray(), rotation.toArray());
+            this._onPlace(this.selectedAsset, position.toArray(), rotation.toArray(), objId);
         }
         return objId;
     }
@@ -337,6 +462,167 @@ class EditorMode {
             }
         }
         return null;
+    }
+
+    // ── 抓取模式 ──────────────────────────────────────────
+
+    /** 切换抓取模式 */
+    grabToggle() {
+        if (this._grabActive) {
+            this._endGrab();
+            this._grabActive = false;
+            return false;
+        }
+        this._grabActive = true;
+        if (this._inventoryEl) this._inventoryEl.style.display = 'none';
+        if (this._ghost) this._ghost.visible = false;
+        this.active = false;
+        return true;
+    }
+
+    /** 旋转已抓取的物件（45°） */
+    rotateGrabbed() {
+        if (!this._grabbedObj) return;
+        const euler = new THREE.Euler(0, Math.PI / 4, 0);
+        const rot = new THREE.Quaternion().setFromEuler(euler);
+        this._grabbedObj.quaternion.premultiply(rot);
+        if (this._onMove && this._grabbedObjId) {
+            this._onMove(this._grabbedObjId,
+                this._grabbedObj.position.toArray(),
+                this._grabbedObj.quaternion.toArray());
+        }
+    }
+
+    /** 每帧处理抓取 */
+    _tickGrab() {
+        if (!this._grabActive) return;
+
+        this._raycaster.setFromCamera(this._mouse, this.camera);
+
+        if (this._grabbedObj) {
+            // 正在抓取 → 物件跟随鼠标位置
+            const target = new THREE.Vector3();
+            this.camera.getWorldDirection(target);
+            target.multiplyScalar(this._grabDistance);
+            target.add(this.camera.position);
+            this._grabbedObj.position.copy(target);
+        } else {
+            // 未抓取 → 高亮可抓取物件
+            const allTargets = [];
+            for (const [, obj] of this.placedObjects) allTargets.push(obj);
+            const hits = this._raycaster.intersectObjects(allTargets, true);
+
+            if (hits.length > 0 && hits[0].distance < 10) {
+                let root = hits[0].object;
+                while (root.parent && root.parent !== this.scene) root = root.parent;
+                this._highlightGrabTarget(root);
+            } else {
+                this._clearGrabHighlight();
+            }
+        }
+    }
+
+    /** 点击时抓取/释放物件 */
+    grabClick(button) {
+        if (!this._grabActive) return false;
+
+        if (this._grabbedObj) {
+            // 释放物件
+            if (button === 0) {
+                this._endGrab();
+                return true;
+            }
+            return false;
+        }
+
+        // 尝试抓取被指向的物件
+        if (button === 0) {
+            this._raycaster.setFromCamera(this._mouse, this.camera);
+            const allTargets = [];
+            for (const [id, obj] of this.placedObjects) allTargets.push(obj);
+            const hits = this._raycaster.intersectObjects(allTargets, true);
+
+            if (hits.length > 0 && hits[0].distance < 10) {
+                let root = hits[0].object;
+                while (root.parent && root.parent !== this.scene) root = root.parent;
+                for (const [id, obj] of this.placedObjects) {
+                    if (obj === root) {
+                        this._startGrab(id, obj);
+                        this._clearGrabHighlight();
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    get isGrabbing() { return this._grabbedObj !== null; }
+    get grabActive() { return this._grabActive; }
+
+    // ── 内部: 抓取 ──────────────────────────────────────
+
+    _startGrab(objId, obj) {
+        this._grabbedObj = obj;
+        this._grabbedObjId = objId;
+        this._grabDistance = this.camera.position.distanceTo(obj.position);
+
+        // 添加高亮
+        obj.traverse(c => {
+            if (c.isMesh && c.material.emissive) {
+                c.userData._origEmissive = c.material.emissive.getHex();
+                c.userData._origEmissiveIntensity = c.material.emissiveIntensity;
+                c.material.emissive = new THREE.Color(0x7c3aed);
+                c.material.emissiveIntensity = 0.5;
+            }
+        });
+    }
+
+    _endGrab() {
+        if (!this._grabbedObj) return;
+
+        // 移除高亮
+        this._grabbedObj.traverse(c => {
+            if (c.isMesh && c.userData._origEmissive !== undefined) {
+                c.material.emissive = new THREE.Color(c.userData._origEmissive);
+                c.material.emissiveIntensity = c.userData._origEmissiveIntensity;
+            }
+        });
+
+        // 通知位置变更
+        if (this._onMove && this._grabbedObjId) {
+            this._onMove(this._grabbedObjId,
+                this._grabbedObj.position.toArray(),
+                this._grabbedObj.quaternion.toArray());
+        }
+
+        this._grabbedObj = null;
+        this._grabbedObjId = null;
+    }
+
+    _highlightGrabTarget(root) {
+        if (this._grabHighlight === root) return;
+        this._clearGrabHighlight();
+        this._grabHighlight = root;
+
+        root.traverse(c => {
+            if (c.isMesh && c.material.emissive) {
+                c.userData._origEmissive2 = c.material.emissive.getHex();
+                c.material.emissive = new THREE.Color(0x4488ff);
+                c.material.emissiveIntensity = 0.3;
+            }
+        });
+    }
+
+    _clearGrabHighlight() {
+        if (!this._grabHighlight) return;
+        this._grabHighlight.traverse(c => {
+            if (c.isMesh && c.userData._origEmissive2 !== undefined) {
+                c.material.emissive = new THREE.Color(c.userData._origEmissive2);
+                c.material.emissiveIntensity = c.material.emissiveIntensity || 0;
+            }
+        });
+        this._grabHighlight = null;
     }
 
     // ── 内部 ──────────────────────────────────────────────
@@ -404,14 +690,35 @@ class EditorMode {
                 }
                 #inventory-panel .inv-cat { color: #666; font-size: 11px; text-transform: uppercase; margin: 4px 0 2px; }
                 #inventory-panel .inv-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-                #inventory-btn {
+                .inv-btn {
                     padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
                     cursor: pointer; font-size: 12px; color: #ccc; background: rgba(255,255,255,0.05);
                     white-space: nowrap; transition: all 0.1s;
                 }
-                #inventory-btn:hover { background: rgba(124,58,237,0.3); border-color: #7c3aed; }
-                #inventory-btn.selected { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+                .inv-btn:hover { background: rgba(124,58,237,0.3); border-color: #7c3aed; }
+                .inv-btn.selected { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+                #ai-gen-row {
+                    display: flex; gap: 6px; margin-bottom: 10px;
+                    padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);
+                }
+                #ai-prompt-input {
+                    flex: 1; padding: 8px 10px; border-radius: 6px;
+                    border: 1px solid #7c3aed; background: rgba(0,0,0,0.4);
+                    color: #fff; font-size: 12px; outline: none;
+                }
+                #ai-prompt-input::placeholder { color: #666; }
+                #ai-gen-btn {
+                    padding: 8px 14px; border-radius: 6px; border: none;
+                    background: #7c3aed; color: #fff; font-size: 12px; font-weight: 600;
+                    cursor: pointer; white-space: nowrap;
+                }
+                #ai-gen-btn:hover { background: #6d28d9; }
+                #ai-gen-btn:disabled { background: #444; cursor: default; }
             </style>
+            <div id="ai-gen-row">
+                <input id="ai-prompt-input" placeholder="🤖 AI: 描述想要的物件... (如: 红木圆桌)">
+                <button id="ai-gen-btn">生成</button>
+            </div>
         `;
 
         for (const cat of categories) {
@@ -426,7 +733,7 @@ class EditorMode {
 
         this._inventoryEl.innerHTML = html;
 
-        // 绑定点击
+        // 绑定物件选择
         this._inventoryEl.querySelectorAll('.inv-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.selectedAsset = btn.dataset.key;
@@ -435,7 +742,66 @@ class EditorMode {
             });
         });
 
+        // AI 生成按钮
+        const aiBtn = this._inventoryEl.querySelector('#ai-gen-btn');
+        const aiInput = this._inventoryEl.querySelector('#ai-prompt-input');
+        if (aiBtn && aiInput) {
+            const doGen = () => {
+                const prompt = aiInput.value.trim();
+                if (!prompt) return;
+                aiBtn.disabled = true;
+                aiBtn.textContent = '...';
+                try {
+                    const result = generateFromPrompt(prompt);
+                    this._placeAIGenerated(result);
+                } catch (e) {
+                    console.error('AI 生成失败:', e);
+                }
+                aiBtn.disabled = false;
+                aiBtn.textContent = '生成';
+                aiInput.value = '';
+            };
+            aiBtn.addEventListener('click', doGen);
+            aiInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); doGen(); }
+                e.stopPropagation();
+            });
+        }
+
         this._inventoryEl.style.display = this._inventoryVisible ? 'block' : 'none';
+    }
+
+    /** 放置 AI 生成的物件到场景中 */
+    _placeAIGenerated(result) {
+        if (!result || !result.group) return null;
+
+        const objId = 'ai_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+        const group = result.group;
+
+        // 放在玩家前方
+        const dir = new THREE.Vector3();
+        this.camera.getWorldDirection(dir);
+        group.position.copy(this.camera.position).addScaledVector(dir, 3);
+        group.position.y = this.camera.position.y - 0.5;
+
+        // 设置阴影
+        group.traverse(c => {
+            if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+            }
+        });
+
+        this.scene.add(group);
+        this.placedObjects.set(objId, group);
+
+        // 用 "ai:" 前缀标记，远程客户端会重新生成
+        const assetKey = 'ai:' + (result.name || 'object');
+        if (this._onPlace) {
+            this._onPlace(assetKey, group.position.toArray(), group.quaternion.toArray(), objId);
+        }
+
+        return objId;
     }
 
     _sharedGeom(geom) {

@@ -50,7 +50,28 @@
   /* 连接状态 */
   #conn-status {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    color: #fff; font-size: 18px; z-index: 150; display: none;
+    color: #ccc; font-size: 15px; z-index: 150; display: none;
+    text-align: center;
+  }
+  #conn-status .spinner {
+    width: 32px; height: 32px; margin: 0 auto 12px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: #7c3aed; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 回合指示器 */
+  #turn-indicator {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); border: 1px solid rgba(124,58,237,0.3);
+    border-radius: 20px; padding: 6px 20px; z-index: 105;
+    color: #fff; font-size: 13px; font-weight: 600;
+    display: none; pointer-events: none;
+  }
+  #turn-indicator .turn-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
   }
 
   /* 系统消息 toast */
@@ -75,6 +96,15 @@
     <input id="name-input" placeholder="输入你的名字..." maxlength="20" value="Player">
     <label>选择颜色</label>
     <div class="color-row" id="color-picker"></div>
+    <label>世界模板</label>
+    <select id="template-select" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.4);color:#fff;font-size:14px;margin-bottom:14px;outline:none">
+      <option value="floating_island">浮空岛 — 云海仙境</option>
+      <option value="castle_hall">城堡大厅 — 哥特石柱</option>
+      <option value="space_station">太空站 — 星轨环绕</option>
+      <option value="forest_clearing">森林空地 — 巨树环绕</option>
+      <option value="desert_oasis">沙漠绿洲 — 棕榈清泉</option>
+      <option value="void_platform">虚空平台 — 霓虹极简</option>
+    </select>
     <button id="join-btn">进入世界</button>
   </div>
 </div>
@@ -85,12 +115,20 @@
   <span class="key">鼠标</span> 视角 &nbsp;
   <span class="key">Space</span> 跳跃 &nbsp;
   <span class="key">T</span> 聊天 &nbsp;
+  <span class="key">V</span> 语音 &nbsp;
   <span class="key">E</span> 编辑 &nbsp;
+  <span class="key">G</span> 抓取 &nbsp;
+  <span class="key">C</span> 下棋 &nbsp;
+  <span class="key">K</span> 卡牌 &nbsp;
+  <span class="key">R</span> 骰子 &nbsp;
+  <span class="key">B</span> 回合 &nbsp;
   <span class="key">左键</span> 放置 &nbsp;
   <span class="key">右键</span> 删除
 </div>
 
-<div id="conn-status">正在连接...</div>
+<div id="conn-status"><div class="spinner"></div>正在连接...</div>
+
+<div id="turn-indicator"><span class="turn-dot"></span><span id="turn-text"></span></div>
 
 <!-- Three.js + Addons -->
 <script type="importmap">
@@ -111,6 +149,11 @@ import { AvatarSystem } from '../js/avatar-system.js';
 import { ChatUI } from '../js/chat-ui.js';
 import { Presence } from '../js/presence.js';
 import { EditorMode } from '../js/editor-mode.js';
+import { buildWorld } from '../js/world-builder.js';
+import { generateFromPrompt } from '../js/ai-generator.js';
+import { ChessUI } from '../js/chess-ui.js';
+import { VoiceChat } from '../js/voice-chat.js';
+import { CardTableUI } from '../js/card-ui.js';
 
 // ── 全局状态 ──────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
@@ -135,176 +178,30 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);  // 天蓝色
 scene.fog = new THREE.Fog(0xc8dce8, 30, 80);    // 远处淡雾
 
-// 岛屿参数（必须在 camera 之前定义）
-const ISLAND_CENTER = new THREE.Vector3(0, 6, 0);
+// ── 世界构建 (动态场景模板) ──────────────────────────────────
+
+// 默认世界配置 (收到 room_state 后可能更新)
+const DEFAULT_WORLD_CONFIG = {
+    sky_color: '#87ceeb', fog_color: '#c8dce8', fog_near: 30, fog_far: 80,
+    terrain_type: 'floating_island',
+    terrain_config: { island_height: 10, island_radius: 4.5, grass_color: '#4a7c3f' },
+    ambient_light: '#8899bb', ambient_intensity: 2.0,
+    sun_color: '#ffeedd', sun_intensity: 4.0,
+};
+
+let worldData = buildWorld(scene, DEFAULT_WORLD_CONFIG);
+let ISLAND_CENTER = worldData.islandCenter;
+let ISLAND_TOP_RADIUS = worldData.islandRadius;
+
+function getSurfaceY() { return worldData.surfaceY; }
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
-camera.position.set(0, ISLAND_CENTER.y + 1.6, 8);
-
-// 光照 — 日光感
-scene.add(new THREE.AmbientLight(0x8899bb, 2));
-const sunLight = new THREE.DirectionalLight(0xffeedd, 4);
-sunLight.position.set(20, 25, 10);
-sunLight.castShadow = true;
-scene.add(sunLight);
-const skyLight = new THREE.DirectionalLight(0xaaccff, 1.5);
-skyLight.position.set(-10, 15, -5);
-scene.add(skyLight);
-const ISLAND_TOP_RADIUS = 4.5;
-const ISLAND_HEIGHT = 10;
-const ISLAND_BOTTOM_RADIUS = 0.3;
-
-const islandGroup = new THREE.Group();
-scene.add(islandGroup);
-
-// 锥体主体 — 上大下小的倒锥
-const coneGeom = new THREE.CylinderGeometry(ISLAND_BOTTOM_RADIUS, ISLAND_TOP_RADIUS, ISLAND_HEIGHT, 32);
-const coneMat = new THREE.MeshStandardMaterial({ color: 0x6b5e4a, roughness: 0.8, metalness: 0.05 });
-const cone = new THREE.Mesh(coneGeom, coneMat);
-cone.position.copy(ISLAND_CENTER);
-cone.position.y -= ISLAND_HEIGHT / 2;
-cone.castShadow = true;
-cone.receiveShadow = true;
-islandGroup.add(cone);
-
-// 顶部平台 — 草皮表面
-const topGeom = new THREE.CylinderGeometry(ISLAND_TOP_RADIUS, ISLAND_TOP_RADIUS, 0.3, 32);
-const topMat = new THREE.MeshStandardMaterial({ color: 0x4a7c3f, roughness: 0.7 });
-const topDisk = new THREE.Mesh(topGeom, topMat);
-topDisk.position.copy(ISLAND_CENTER);
-topDisk.position.y += 0.15;
-topDisk.castShadow = true;
-topDisk.receiveShadow = true;
-islandGroup.add(topDisk);
-
-// 顶部草地环 — 轻微凸起的边缘
-const rimGeom = new THREE.TorusGeometry(ISLAND_TOP_RADIUS - 0.15, 0.25, 8, 32);
-const rimMat = new THREE.MeshStandardMaterial({ color: 0x5a9645, roughness: 0.6 });
-const rim = new THREE.Mesh(rimGeom, rimMat);
-rim.rotation.x = Math.PI / 2;
-rim.position.copy(ISLAND_CENTER);
-rim.position.y += 0.3;
-rim.castShadow = true;
-islandGroup.add(rim);
-
-// 岩层纹理 — 锥体上几圈突出的岩石环
-for (let i = 1; i <= 3; i++) {
-  const t = i / 4;
-  const rockY = ISLAND_CENTER.y - ISLAND_HEIGHT * t;
-  const rockRadius = ISLAND_BOTTOM_RADIUS + (ISLAND_TOP_RADIUS - ISLAND_BOTTOM_RADIUS) * (1 - t);
-  const rockGeom = new THREE.TorusGeometry(rockRadius, 0.15 + Math.random() * 0.2, 8, 32);
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a7a6a, roughness: 0.9 });
-  const rockRing = new THREE.Mesh(rockGeom, rockMat);
-  rockRing.rotation.x = Math.PI / 2;
-  rockRing.position.y = rockY;
-  rockRing.castShadow = true;
-  islandGroup.add(rockRing);
-}
-
-// 底部尖刺水晶
-const crystalGeom = new THREE.OctahedronGeometry(0.5, 0);
-const crystalMat = new THREE.MeshStandardMaterial({
-  color: 0x7c3aed,
-  roughness: 0.2,
-  metalness: 0.3,
-  emissive: 0x2a1050,
-  emissiveIntensity: 0.8,
-});
-const crystal = new THREE.Mesh(crystalGeom, crystalMat);
-crystal.position.copy(ISLAND_CENTER);
-crystal.position.y -= ISLAND_HEIGHT + 0.3;
-crystal.scale.set(1, 1.8, 1);
-islandGroup.add(crystal);
-
-// 水晶光点
-const glowGeom = new THREE.SphereGeometry(0.15, 8, 8);
-const glowMat = new THREE.MeshBasicMaterial({ color: 0x7c3aed });
-const glow = new THREE.Mesh(glowGeom, glowMat);
-glow.position.copy(crystal.position);
-glow.position.y -= 0.4;
-islandGroup.add(glow);
-
-// 浮空碎石 — 环绕岛屿的小石头
-for (let i = 0; i < 12; i++) {
-  const angle = (i / 12) * Math.PI * 2;
-  const dist = ISLAND_TOP_RADIUS + 1.5 + Math.random() * 2.5;
-  const heightOff = (Math.random() - 0.5) * 3;
-  const rockGeom = new THREE.IcosahedronGeometry(0.2 + Math.random() * 0.5, 1);
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9 });
-  const smallRock = new THREE.Mesh(rockGeom, rockMat);
-  smallRock.position.set(
-    ISLAND_CENTER.x + Math.cos(angle) * dist,
-    ISLAND_CENTER.y + heightOff,
-    ISLAND_CENTER.z + Math.sin(angle) * dist
-  );
-  smallRock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-  smallRock.castShadow = true;
-  islandGroup.add(smallRock);
-}
-
-// 云朵
-function makeCloud(x, y, z, scale = 1) {
-  const cloudGroup = new THREE.Group();
-  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.6 });
-  for (let j = 0; j < 5; j++) {
-    const blobGeom = new THREE.SphereGeometry((0.4 + Math.random() * 0.6) * scale, 8, 6);
-    const blob = new THREE.Mesh(blobGeom, cloudMat);
-    blob.position.set(Math.random() * 1.5 * scale, Math.random() * 0.4 * scale, Math.random() * 1.5 * scale);
-    cloudGroup.add(blob);
-  }
-  cloudGroup.position.set(x, y, z);
-  return cloudGroup;
-}
-
-// 岛屿上方和周围的云
-for (let i = 0; i < 8; i++) {
-  const angle = Math.random() * Math.PI * 2;
-  const dist = ISLAND_TOP_RADIUS + 2 + Math.random() * 6;
-  const cloudY = ISLAND_CENTER.y + 2 + Math.random() * 4;
-  const cloud = makeCloud(
-    ISLAND_CENTER.x + Math.cos(angle) * dist,
-    cloudY,
-    ISLAND_CENTER.z + Math.sin(angle) * dist,
-    0.8 + Math.random() * 1.5
-  );
-  islandGroup.add(cloud);
-}
-
-// 远处环状粒子 — 增加空间感
-const particlesGeom = new THREE.BufferGeometry();
-const particlesCount = 200;
-const positions = new Float32Array(particlesCount * 3);
-for (let i = 0; i < particlesCount; i++) {
-  const angle = Math.random() * Math.PI * 2;
-  const dist = ISLAND_TOP_RADIUS + 3 + Math.random() * 15;
-  positions[i * 3] = ISLAND_CENTER.x + Math.cos(angle) * dist;
-  positions[i * 3 + 1] = ISLAND_CENTER.y + (Math.random() - 0.3) * 20;
-  positions[i * 3 + 2] = ISLAND_CENTER.z + Math.sin(angle) * dist;
-}
-particlesGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-const particlesMat = new THREE.PointsMaterial({
-  color: 0xaaaacc,
-  size: 0.08,
-  transparent: true,
-  opacity: 0.5,
-  depthWrite: false,
-});
-const particles = new THREE.Points(particlesGeom, particlesMat);
-scene.add(particles);
-
-// 更新相机出生点 — 站在岛屿表面上
 camera.position.set(0, ISLAND_CENTER.y + 1.6, 5);
-
-// 更新跳跃地面高度
-const GROUND_Y = ISLAND_CENTER.y;
 
 // 模型组 — GLB 加载的模型也放到岛屿上
 const modelGroup = new THREE.Group();
 modelGroup.position.copy(ISLAND_CENTER);
 scene.add(modelGroup);
-
-// 移除旧网格引用（保持 scene 干净）
-// grid 不再添加 — 浮空岛不需要网格
 
 
 // ── GLB 加载器 ────────────────────────────────────────────
@@ -316,15 +213,12 @@ gltfLoader.setDRACOLoader(dracoLoader);
 
 async function loadSceneModel(modelUrl) {
   if (!modelUrl) return;
-  // 清除旧模型
   while (modelGroup.children.length > 0) {
-    const child = modelGroup.children[0];
-    modelGroup.remove(child);
+    modelGroup.remove(modelGroup.children[0]);
   }
   try {
     const gltf = await gltfLoader.loadAsync(modelUrl);
     const model = gltf.scene;
-    // 缩放适配
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
@@ -342,6 +236,12 @@ async function loadSceneModel(modelUrl) {
   } catch (e) {
     console.warn('模型加载失败:', e);
   }
+}
+
+function _rebuildWorld(config) {
+  showToast(`正在切换到: ${config.name || config.terrain_type}...`);
+  // 简单重载以获取新世界（物件会从 DB 恢复）
+  setTimeout(() => location.reload(), 800);
 }
 
 // ── FPS 相机控制 ──────────────────────────────────────────
@@ -368,6 +268,58 @@ window.addEventListener('keydown', e => {
     const active = editor.toggle();
     showToast(active ? '编辑模式: 开 — 左键放置 右键删除' : '编辑模式: 关');
   }
+  if (e.code === 'KeyG' && isPointerLocked && !chatting) {
+    const grabbing = editor.grabToggle();
+    showToast(grabbing ? '抓取模式: 开 — 左键拾取/放下 R旋转' : '抓取模式: 关');
+  }
+  if (e.code === 'KeyR' && isPointerLocked && !chatting) {
+    if (editor.grabActive && editor.isGrabbing) {
+      editor.rotateGrabbed();
+      showToast('已旋转 45°');
+    } else {
+      const pos = camera.position.clone();
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      pos.addScaledVector(dir, 2);
+      pos.y = getSurfaceY() + 0.5;
+      rollDiceAt(pos);
+    }
+  }
+  if (e.code === 'KeyB' && isPointerLocked && !chatting) {
+    if (document.getElementById('turn-indicator').style.display === 'none') {
+      showTurnIndicator();
+    } else {
+      switchTurn();
+    }
+  }
+  if (e.code === 'KeyC' && isPointerLocked && !chatting) {
+    if (!chessUI.visible) {
+      chessUI.startGame('white');
+      showToast('国际象棋已开始！你执白方');
+    } else {
+      chessUI.hide();
+    }
+  }
+  if (e.code === 'KeyK' && isPointerLocked && !chatting) {
+    cardTableUI.toggle();
+    if (cardTableUI.visible) {
+      document.exitPointerLock();
+      showToast('卡牌桌已打开 (K 关闭)');
+    }
+  }
+  if (e.code === 'KeyV' && isPointerLocked && !chatting) {
+    if (!voiceChat.isActive) {
+      voiceChat.start((type, target, data) => {
+        client.send({ type, target, data });
+      }).then(ok => {
+        if (ok) showToast('语音已连接 (V 切换静音)');
+        else showToast('无法访问麦克风');
+      });
+    } else {
+      const muted = voiceChat.toggleMute();
+      showToast(muted ? '已静音' : '已取消静音');
+    }
+  }
   if (e.code === 'Escape' && isPointerLocked) {
     document.exitPointerLock();
   }
@@ -375,8 +327,30 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Enter' && chatting) {
     const text = document.getElementById('chat-input')?.value?.trim();
     if (text) {
-      client.send({ type: 'chat_message', text });
-      chatUI.addMessage(displayName, text);
+      // /gen 命令: AI 生成物件
+      if (text.startsWith('/gen ')) {
+        const prompt = text.slice(5).trim();
+        if (prompt) {
+          const result = generateFromPrompt(prompt);
+          if (result && result.group) {
+            const objId = 'ai_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            result.group.position.copy(camera.position).addScaledVector(dir, 3);
+            result.group.position.y = camera.position.y - 0.5;
+            result.group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+            scene.add(result.group);
+            editor.placedObjects.set(objId, result.group);
+            animatePlacement(result.group);
+            client.send({ type: 'place_object', asset_key: 'ai:' + prompt, obj_id: objId, position: result.group.position.toArray(), rotation: result.group.quaternion.toArray() });
+            chatUI.addMessage('系统', `🤖 已生成: ${prompt}`, true);
+            showToast(`AI 已生成: ${prompt}`);
+          }
+        }
+      } else {
+        client.send({ type: 'chat_message', text });
+        chatUI.addMessage(displayName, text);
+      }
       document.getElementById('chat-input').value = '';
       chatUI.hide();
       renderer.domElement.requestPointerLock();
@@ -416,11 +390,11 @@ function updateCamera(delta) {
   velocity.normalize().multiplyScalar(speed * delta);
   camera.position.add(velocity);
 
-  // 岛屿表面检测 — 站在距离岛中心 ISLAND_TOP_RADIUS 内才算着地
+  // 碰撞检测 — 根据当前世界动态计算
+  const surfaceY = getSurfaceY() + 1.6; // 平台表面 + 眼高
   const dx = camera.position.x - ISLAND_CENTER.x;
   const dz = camera.position.z - ISLAND_CENTER.z;
   const onIsland = Math.sqrt(dx * dx + dz * dz) <= ISLAND_TOP_RADIUS;
-  const surfaceY = ISLAND_CENTER.y + 0.3 + 1.6; // 平台表面 + 眼高
 
   // 跳跃
   if (keys['Space'] && onIsland && Math.abs(verticalVelocity) < 0.01) {
@@ -438,10 +412,12 @@ function updateCamera(delta) {
 
   // 掉下虚空 → 传送回岛面
   if (camera.position.y < ISLAND_CENTER.y - 20) {
-    camera.position.set(ISLAND_CENTER.x, surfaceY, ISLAND_CENTER.z);
+    const teleportPos = new THREE.Vector3(ISLAND_CENTER.x, surfaceY, ISLAND_CENTER.z);
+    spawnTeleportBurst(teleportPos);
+    camera.position.copy(teleportPos);
     verticalVelocity = 0;
     isJumping = false;
-    showToast('你掉入了虚空！已传送回浮空岛');
+    showToast('你掉入了虚空！已传送回');
   }
 
   // 旋转
@@ -457,24 +433,40 @@ const chatUI = new ChatUI();
 const presence = new Presence();
 const editor = new EditorMode(
   scene, camera, renderer,
-  (assetKey, position, rotation) => {
-    client.send({ type: 'place_object', asset_key: assetKey, position, rotation });
+  (assetKey, position, rotation, objId) => {
+    client.send({ type: 'place_object', asset_key: assetKey, position, rotation, obj_id: objId });
   },
   (objId) => {
     client.send({ type: 'remove_object', obj_id: objId });
+  },
+  (objId, position, rotation) => {
+    client.send({ type: 'move_object', obj_id: objId, position, rotation });
   }
 );
 
 chatUI.mount((text) => {
   client.send({ type: 'chat_message', text });
   chatUI.addMessage(displayName, text);
-  // 发送后自动关闭聊天，返回游戏
   setTimeout(() => {
     chatUI.hide();
     if (isPointerLocked) renderer.domElement.requestPointerLock();
   }, 100);
 });
-presence.mount();
+presence.mount((targetSid) => {
+  client.send({ type: 'kick_user', target_session: targetSid });
+  showToast('已踢出用户');
+});
+
+const chessUI = new ChessUI();
+chessUI.mount((from, to, promotion) => {
+  client.send({ type: 'chess_move', from, to, promotion });
+});
+
+const voiceChat = new VoiceChat();
+
+const cardTableUI = new CardTableUI((action, data) => {
+  client.send({ type: action, ...data });
+});
 
 // ── WebSocket 事件 ────────────────────────────────────────
 
@@ -484,7 +476,17 @@ client.on('room_state', (msg) => {
   document.getElementById('join-sub').textContent = `房间 ${roomId}`;
   showToast(`已连接到房间 (${msg.users.length} 人在线)`);
 
-  // 加载场景
+  // 如果是房主，显示标记
+  if (msg.is_host) {
+    presence.setHost(true);
+  }
+
+  // 加载世界模板（如果和当前不同则重建）
+  if (msg.world_config && msg.world_config.terrain_type !== 'floating_island') {
+    _rebuildWorld(msg.world_config);
+  }
+
+  // 加载 GLB 场景
   if (msg.scene_id && msg.scene_id !== 'default') {
     fetch(`/api/scenes/${msg.scene_id}`)
       .then(r => r.json())
@@ -495,8 +497,10 @@ client.on('room_state', (msg) => {
   }
 
   // 初始化玩家列表
-  presence.setUsers(msg.users);
+  presence.setUsers(msg.users, msg.host_session);
+  presence.setSelfSession(msg.session_id);
   avatars.selfSessionId = msg.session_id;
+  voiceChat.setSelfId(msg.session_id);
 
   // 创建远程 Avatar
   for (const u of msg.users) {
@@ -525,12 +529,14 @@ client.on('user_joined', (msg) => {
   presence.addUser(msg.session_id, msg.display_name, msg.avatar_color);
   chatUI.addMessage('系统', `${msg.display_name} 进入了世界`, true);
   showToast(`${msg.display_name} 加入了`);
+  voiceChat.onUserJoined(msg.session_id);
 });
 
 client.on('user_left', (msg) => {
   avatars.removeRemote(msg.session_id);
   presence.removeUser(msg.session_id);
   chatUI.addMessage('系统', `${msg.display_name} 离开了`, true);
+  voiceChat.onUserLeft(msg.session_id);
 });
 
 client.on('pose_broadcast', (msg) => {
@@ -542,7 +548,26 @@ client.on('chat_broadcast', (msg) => {
 });
 
 client.on('object_placed', (msg) => {
+  // 跳过本地已放置的物件（由自己的 placeSelected 创建）
+  if (editor.placedObjects.has(msg.obj_id)) return;
+
+  // AI 生成物件：远程重新生成
+  if (msg.asset_key.startsWith('ai:')) {
+    const prompt = msg.asset_key.slice(3);
+    const result = generateFromPrompt(prompt);
+    if (result && result.group) {
+      result.group.position.set(msg.position[0], msg.position[1], msg.position[2]);
+      result.group.quaternion.set(msg.rotation[0], msg.rotation[1], msg.rotation[2], msg.rotation[3]);
+      result.group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      scene.add(result.group);
+      editor.placedObjects.set(msg.obj_id, result.group);
+      animatePlacement(result.group);
+    }
+    return;
+  }
   editor.addRemoteObject(msg.obj_id, msg.asset_key, msg.position, msg.rotation);
+  const obj = editor.placedObjects.get(msg.obj_id);
+  if (obj) animatePlacement(obj);
 });
 
 client.on('object_removed', (msg) => {
@@ -569,6 +594,58 @@ client.on('error', (msg) => {
     showToast('房间已过期，正在创建新房间...');
     joinRoom();
   }
+});
+
+client.on('host_changed', (msg) => {
+  presence.setHost(msg.new_host_session === client.sessionId);
+  showToast(`${msg.new_host_name} 成为新房主`);
+});
+
+client.on('kicked', () => {
+  showToast('你被房主移出了房间');
+  client.disconnect();
+  setTimeout(() => location.reload(), 1500);
+});
+
+client.on('chess_move_broadcast', (msg) => {
+  const result = chessUI.receiveMove(msg.from, msg.to, msg.promotion);
+  if (result && result.success) {
+    if (result.checkmate) showToast(`将死！${result.winner === 'white' ? '白方' : '黑方'} 获胜！`);
+    else if (result.stalemate) showToast('逼和！');
+    else if (result.check) showToast('将军！');
+  }
+});
+
+client.on('voice_offer', (msg) => {
+  voiceChat.onOffer(msg.from_session, msg.data.sdp);
+});
+client.on('voice_answer', (msg) => {
+  voiceChat.onAnswer(msg.from_session, msg.data.sdp);
+});
+client.on('voice_ice', (msg) => {
+  voiceChat.onIceCandidate(msg.from_session, msg.data.candidate);
+});
+
+// ── 卡牌游戏事件 ──────────────────────────────────────────
+client.on('card_game_state', (msg) => {
+  if (!cardTableUI._engine) {
+    cardTableUI.initGame(msg.players, client.sessionId, msg.config || {});
+  }
+  cardTableUI.loadState(msg.state);
+  if (!cardTableUI.visible) cardTableUI.show();
+});
+
+client.on('card_dealt', (msg) => {
+  cardTableUI.onDeal(msg);
+  showToast(`已发牌，${msg.hands ? Object.keys(msg.hands).length : 0} 位玩家`);
+});
+
+client.on('card_played', (msg) => {
+  cardTableUI.onCardPlayed(msg);
+});
+
+client.on('card_drawn', (msg) => {
+  cardTableUI.onCardDrawn(msg);
 });
 
 client.on('emote_broadcast', (msg) => {
@@ -624,10 +701,11 @@ function joinRoom() {
 
   // 如果没有 room ID，创建一个
   if (!roomId) {
+    const template = params.get('template') || document.getElementById('template-select')?.value || 'floating_island';
     fetch('/api/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scene_id: SCENE_ID || 'default' }),
+      body: JSON.stringify({ scene_id: SCENE_ID || 'default', world_template: template }),
     })
       .then(r => r.json())
       .then(data => {
@@ -655,11 +733,23 @@ document.getElementById('join-btn').addEventListener('click', () => {
 // ── 点击交互 ──────────────────────────────────────────────
 
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (!isPointerLocked || !editor.active) return;
+  if (!isPointerLocked) return;
+
+  // 抓取模式
+  if (editor.grabActive) {
+    editor.grabClick(e.button);
+    return;
+  }
+
+  if (!editor.active) return;
 
   if (e.button === 0) {
     // 左键：放置物件
-    editor.placeSelected();
+    const objId = editor.placeSelected();
+    if (objId) {
+      const mesh = editor.placedObjects.get(objId);
+      if (mesh) animatePlacement(mesh);
+    }
   } else if (e.button === 2) {
     // 右键：删除物件
     editor.removePointed();
@@ -678,6 +768,256 @@ function showToast(text) {
   setTimeout(() => el.remove(), 4500);
 }
 
+// ── 脚步声 (AudioContext) ──────────────────────────────────
+
+const FootstepAudio = {
+  _ctx: null,
+  _lastStep: 0,
+  _interval: 0.45,
+
+  _ensureCtx() {
+    if (!this._ctx) {
+      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return this._ctx;
+  },
+
+  step() {
+    const now = performance.now() / 1000;
+    if (now - this._lastStep < this._interval) return;
+    this._lastStep = now;
+
+    const ctx = this._ensureCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const dur = 0.07;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(180 + Math.random() * 40, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + dur);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(500, ctx.currentTime);
+
+    gain.gain.setValueAtTime(0.04, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + dur);
+  },
+};
+
+// ── 传送粒子爆发 ──────────────────────────────────────────
+
+function spawnTeleportBurst(pos) {
+  const count = 50;
+  const geom = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  const velocities = [];
+
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = pos.x;
+    positions[i * 3 + 1] = pos.y;
+    positions[i * 3 + 2] = pos.z;
+    velocities.push({
+      x: (Math.random() - 0.5) * 3,
+      y: Math.random() * 4 + 1,
+      z: (Math.random() - 0.5) * 3,
+    });
+  }
+
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0x7c3aed, size: 0.15, transparent: true,
+    opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const points = new THREE.Points(geom, mat);
+  scene.add(points);
+
+  const start = performance.now();
+  function tick() {
+    const elapsed = (performance.now() - start) / 1000;
+    if (elapsed > 1.2) {
+      scene.remove(points); geom.dispose(); mat.dispose();
+      return;
+    }
+    const arr = geom.attributes.position.array;
+    for (let i = 0; i < count; i++) {
+      arr[i * 3] += velocities[i].x * 0.016;
+      arr[i * 3 + 1] += velocities[i].y * 0.016;
+      arr[i * 3 + 2] += velocities[i].z * 0.016;
+      velocities[i].y -= 4 * 0.016;
+    }
+    geom.attributes.position.needsUpdate = true;
+    mat.opacity = 1 - elapsed / 1.2;
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+// ── 放置反馈动画 ──────────────────────────────────────────
+
+function animatePlacement(mesh) {
+  const start = performance.now();
+  const origScale = mesh.scale.clone();
+  mesh.scale.set(0.01, 0.01, 0.01);
+
+  function tick() {
+    const elapsed = (performance.now() - start) / 1000;
+    if (elapsed > 0.3) {
+      mesh.scale.copy(origScale);
+      return;
+    }
+    const t = elapsed / 0.3;
+    const s = 1 - Math.pow(1 - t, 3);
+    const bounce = 1 + Math.sin(t * Math.PI * 2) * 0.15 * (1 - t);
+    const scale = s * bounce;
+    mesh.scale.setScalar(Math.max(0.01, scale));
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+// ── 骰子投掷 ──────────────────────────────────────────────
+
+let _diceObjects = [];
+
+function rollDiceAt(position) {
+  const count = 2;
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    const geom = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    const mats = Array(6).fill(null).map(() =>
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })
+    );
+    _paintDiceFaces(mats);
+
+    const dice = new THREE.Mesh(geom, mats);
+    dice.position.copy(position);
+    dice.position.x += (i - 0.5) * 0.3;
+    dice.position.y += 1.5 + Math.random() * 0.5;
+    dice.castShadow = true;
+
+    dice.userData.vel = new THREE.Vector3(
+      (Math.random() - 0.5) * 2,
+      3 + Math.random() * 3,
+      (Math.random() - 0.5) * 2
+    );
+    dice.userData.angVel = new THREE.Vector3(
+      Math.random() * 15, Math.random() * 15, Math.random() * 15
+    );
+    dice.userData.result = null;
+
+    scene.add(dice);
+    _diceObjects.push(dice);
+    results.push(dice);
+  }
+
+  setTimeout(() => {
+    for (const d of results) {
+      const up = new THREE.Vector3(0, 1, 0);
+      up.applyQuaternion(d.quaternion);
+      const face = _closestFace(up);
+      d.userData.result = face;
+      _snapToFace(d, face);
+    }
+    const vals = results.map(d => d.userData.result + 1);
+    showToast(`🎲 骰子: ${vals.join(' + ')} = ${vals.reduce((a, b) => a + b, 0)}`);
+  }, 3000);
+
+  return results;
+}
+
+function _paintDiceFaces(mats) {
+  const dots = [
+    [4], [0, 8], [0, 4, 8], [0, 2, 6, 8],
+    [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8],
+  ];
+  for (let face = 0; face < 6; face++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#111111';
+    for (const pos of dots[face]) {
+      const col = pos % 3;
+      const row = Math.floor(pos / 3);
+      ctx.beginPath();
+      ctx.arc(16 + col * 16, 16 + row * 16, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    mats[face].map = tex;
+    mats[face].needsUpdate = true;
+  }
+}
+
+function _closestFace(normal) {
+  const dirs = [
+    new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0),
+  ];
+  let best = 0, bestDot = -Infinity;
+  for (let i = 0; i < 6; i++) {
+    const d = normal.dot(dirs[i]);
+    if (d > bestDot) { bestDot = d; best = i; }
+  }
+  return best;
+}
+
+function _snapToFace(dice, face) {
+  const dirs = [
+    new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0),
+  ];
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0), dirs[face]
+  );
+  dice.quaternion.copy(q);
+}
+
+// ── 回合指示器 ─────────────────────────────────────────────
+
+let _currentTurn = 0;
+const _turnColors = ['#f0f0e0', '#2a2a2a'];
+const _turnNames = ['白方', '黑方'];
+
+function updateTurnUI() {
+  const el = document.getElementById('turn-indicator');
+  const dot = el?.querySelector('.turn-dot');
+  const text = el?.querySelector('#turn-text');
+  if (!el || !dot || !text) return;
+  el.style.display = 'block';
+  dot.style.background = _turnColors[_currentTurn];
+  text.textContent = `${_turnNames[_currentTurn]} 回合`;
+}
+
+function switchTurn() {
+  _currentTurn = _currentTurn === 0 ? 1 : 0;
+  updateTurnUI();
+  showToast(`${_turnNames[_currentTurn]} 回合`);
+}
+
+function showTurnIndicator() {
+  updateTurnUI();
+}
+
+function hideTurnIndicator() {
+  const el = document.getElementById('turn-indicator');
+  if (el) el.style.display = 'none';
+}
+
 // ── 渲染循环 ──────────────────────────────────────────────
 
 const clock = new THREE.Clock();
@@ -694,6 +1034,41 @@ function animate() {
   updateCamera(delta);
   avatars.tick(camera, Math.max(frameDelta, 0.016));
   if (editor.active) editor.tick();
+
+  // 脚步声：移动且在地面时
+  {
+    const dx2 = camera.position.x - ISLAND_CENTER.x;
+    const dz2 = camera.position.z - ISLAND_CENTER.z;
+    const onIsland2 = Math.sqrt(dx2 * dx2 + dz2 * dz2) <= ISLAND_TOP_RADIUS;
+    const onGround = Math.abs(camera.position.y - (getSurfaceY() + 1.6)) < 0.15;
+    if (velocity.length() > 0.1 && onIsland2 && onGround) {
+      FootstepAudio.step();
+    }
+  }
+
+  // 骰子物理
+  for (const dice of _diceObjects) {
+    if (!dice.userData.vel) continue;
+    dice.userData.vel.y -= 9.8 * delta;
+    dice.position.x += dice.userData.vel.x * delta;
+    dice.position.y += dice.userData.vel.y * delta;
+    dice.position.z += dice.userData.vel.z * delta;
+    dice.rotation.x += dice.userData.angVel.x * delta;
+    dice.rotation.y += dice.userData.angVel.y * delta;
+    dice.rotation.z += dice.userData.angVel.z * delta;
+
+    const surfaceY = getSurfaceY() + 0.075;
+    if (dice.position.y <= surfaceY) {
+      dice.position.y = surfaceY;
+      if (dice.userData.vel.y < -0.5) {
+        dice.userData.vel.y *= -0.3;
+        dice.userData.angVel.multiplyScalar(0.5);
+      } else {
+        dice.userData.vel.set(0, 0, 0);
+        dice.userData.angVel.multiplyScalar(0.9);
+      }
+    }
+  }
 
   renderer.render(scene, camera);
 }
@@ -715,7 +1090,7 @@ window.addEventListener('beforeunload', () => {
 
 console.log('🏗️  AnchorVerse multiplayer world ready');
 console.log(`   Room: ${roomId || '(auto-create)'}`);
-console.log('   WASD=move  Mouse=look  T=chat  E=edit');
+console.log('   WASD=move  Mouse=look  T=chat  E=edit  C=chess  R=dice');
 </script>
 </body>
 </html>
