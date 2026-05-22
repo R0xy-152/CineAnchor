@@ -345,9 +345,16 @@
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08)">
       <h4 style="color:#4ade80;font-size:13px;margin-bottom:6px">AI 渲染结果示例</h4>
       <p style="color:#666;font-size:10px;margin-bottom:8px">ControlNet-Depth + AnimateDiff · NVIDIA GPU 渲染</p>
+      <div style="display:flex;gap:4px;justify-content:center;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn-preset" onclick="switchDemoVideo('zen_garden')" style="font-size:10px">🎋 禅园</button>
+        <button class="btn-preset" onclick="switchDemoVideo('scifi_corridor')" style="font-size:10px">🔮 科幻</button>
+        <button class="btn-preset" onclick="switchDemoVideo('floating_islands')" style="font-size:10px">🏝 浮岛</button>
+        <button class="btn-preset" onclick="switchDemoVideo('desert_ruins')" style="font-size:10px">🏜 沙漠</button>
+        <button class="btn-preset" onclick="switchDemoVideo('forest_glade')" style="font-size:10px">🌲 森林</button>
+      </div>
       <video id="demo-video-player" controls loop muted
-             style="width:100%;max-width:512px;height:auto;border-radius:8px;background:#000"
-             src="/static/demo_output.mp4">
+             style="width:100%;max-width:512px;height:auto;border-radius:8px;background:#000">
+        <source src="/static/demo_output.mp4" type="video/mp4">
       </video>
     </div>
   </div>
@@ -756,7 +763,40 @@ setInterval(checkAPI, 5000);
 // ============================================================
 let currentSceneId = null;
 
+// 场景类型 → Demo 视频映射
+const SCENE_VIDEOS = {
+  '禅': '/static/videos/zen_garden_demo.mp4',
+  '日式': '/static/videos/zen_garden_demo.mp4',
+  'zen': '/static/videos/zen_garden_demo.mp4',
+  'garden': '/static/videos/zen_garden_demo.mp4',
+  '科幻': '/static/videos/scifi_corridor_demo.mp4',
+  '走廊': '/static/videos/scifi_corridor_demo.mp4',
+  'scifi': '/static/videos/scifi_corridor_demo.mp4',
+  'corridor': '/static/videos/scifi_corridor_demo.mp4',
+  '浮岛': '/static/videos/floating_islands_demo.mp4',
+  'floating': '/static/videos/floating_islands_demo.mp4',
+  'island': '/static/videos/floating_islands_demo.mp4',
+  '沙漠': '/static/videos/desert_ruins_demo.mp4',
+  '遗迹': '/static/videos/desert_ruins_demo.mp4',
+  'desert': '/static/videos/desert_ruins_demo.mp4',
+  'ruins': '/static/videos/desert_ruins_demo.mp4',
+  '森林': '/static/videos/forest_glade_demo.mp4',
+  '树林': '/static/videos/forest_glade_demo.mp4',
+  'forest': '/static/videos/forest_glade_demo.mp4',
+  'glade': '/static/videos/forest_glade_demo.mp4',
+};
+let currentSceneType = '';
+
+function getDemoVideo(prompt) {
+  const lower = (prompt || currentSceneType || '').toLowerCase();
+  for (const [kw, url] of Object.entries(SCENE_VIDEOS)) {
+    if (lower.includes(kw)) return url;
+  }
+  return '/static/videos/zen_garden_demo.mp4'; // 默认
+}
+
 window.switchScene = function(prompt) {
+  currentSceneType = prompt;
   if (prompt) {
     document.getElementById('prompt-input').value = prompt;
     generateScene();
@@ -796,6 +836,7 @@ window.generateScene = async function() {
       btn.textContent = 'AI 生成 3D 场景';
       btn.disabled = false;
       currentSceneId = result.id;
+      currentSceneType = result.template || prompt;
       document.getElementById('scene-status').innerHTML = '<span class="ok">场景就绪</span>';
 
       if (result.model_url) {
@@ -1775,8 +1816,22 @@ window.closeDepthVideo = function() {
   if (demoVid) demoVid.pause();
 };
 
+window.switchDemoVideo = function(sceneName) {
+  const demoVid = document.getElementById('demo-video-player');
+  demoVid.querySelector('source').src = `/static/videos/${sceneName}_demo.mp4`;
+  demoVid.load();
+  demoVid.play();
+};
+
 window.showDemoResult = function() {
-  document.getElementById('depth-video-info').textContent = 'AI 渲染结果示例 (Windows GPU)';
+  const demoVid = document.getElementById('demo-video-player');
+  // 根据当前场景类型选择视频
+  const prompt = document.getElementById('prompt-input').value || currentSceneType;
+  const videoUrl = getDemoVideo(prompt);
+  demoVid.querySelector('source').src = videoUrl;
+  demoVid.load();
+
+  document.getElementById('depth-video-info').textContent = 'AI 渲染结果示例 (ControlNet + AnimateDiff)';
   document.getElementById('depth-video-modal').style.display = 'flex';
   document.getElementById('depth-video-canvas').style.display = 'none';
   document.getElementById('depth-video-fps').style.display = 'none';
