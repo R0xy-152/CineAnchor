@@ -1568,3 +1568,34 @@ git push
 **新视频已生成并推送：** `a8cb580`
 
 ---
+
+### [2026-05-23 深度图诊断完成 — 小win]
+
+**结论：深度图生成管线需要 mac 端修复，ControlNet 管线本身工作正常。**
+
+**诊断过程：**
+
+| 尝试 | 方法 | 结果 | 原因 |
+|------|------|------|------|
+| 1 | 原始 demo_depth_frames | ❌ 画面看不清 | 大部分帧只有 2 个像素值(纯色)，ControlNet 无几何信息 |
+| 2 | 深度归一化 stretch | ⚠️ 提升 40-310% | 但源数据太差，归一化也救不回 0 结构帧 |
+| 3 | Blender 5.1 本地渲染 | ❌ 无法运行 | Blender 5.1 compositor API 大改(Composite/MapRange 节点已删除) |
+| 4 | 合成几何深度图 | ⚠️ 帧结构清晰 | ControlNet 训练用 MiDaS 真实照片深度，看不懂几何图形 |
+| 5 | 3DGS 渲染复杂场景 | ❌ 深度全零 | gsplat 对大规模场景渲染有问题(near/far plane) |
+| 6 | txt2img (放弃深度) | ⚠️ 画面可辨认 | 但没有相机运动，每帧是独立随机生成 |
+
+**mac 端需要修复的内容：**
+1. Blender Z-depth pass 需要在 compositor 中归一化到 0-255 全范围
+2. 设置正确的 near/far 裁剪面（用场景实际尺寸）
+3. 验证：导出的每帧深度图 unique values > 50
+4. Blender 5.1 兼容：`scene.compositing_node_group` 替代 `scene.node_tree`，`CompositorNodeNormalize` + `CompositorNodeOutputFile` 替代旧的 Composite 节点
+
+**本地已验证：**
+- `controlnet_renderer.py` 新增 `_normalize_depth()` — 2-98 百分位拉伸到全 0-255
+- 当深度图有结构时，ControlNet + AnimateDiff 工作正常
+- RAFT 3x 插值工作正常
+- 最优配置：scale=1.7, seed=42, steps=25
+
+**本地代码已就绪：** `controlnet_renderer.py`, `batch_render_scenes.py`, `frame_interpolator.py`, `video_renderer.py`, `generate_cube_splat.py`(含5场景PLY生成器), `pipeline_3dgs.py`
+
+---

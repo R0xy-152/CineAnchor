@@ -309,6 +309,172 @@ def create_complex_scene(output_path="scene_complex.ply", num_points=30000):
     _write_ply(xyz, scale_log=-2.2, opacity_log=14.0, output_path=output_path)
 
 
+# ═══════════════════════════════════════════════════════════
+# 5 主题场景 PLY 生成器
+# ═══════════════════════════════════════════════════════════
+
+def _sample_cube_surface_ex(cx, cy, cz, sx, sy, sz, n_points):
+    """Generate surface points for an axis-aligned box (arbitrary half-extents)."""
+    per_face = n_points // 6
+    rem = n_points % 6
+    parts = []
+    for fi in range(6):
+        n = per_face + (1 if fi < rem else 0)
+        u = np.random.rand(n) * 2 - 1
+        v = np.random.rand(n) * 2 - 1
+        if fi == 0:   pts = np.column_stack([u*sx + cx, v*sy + cy, np.full(n, sz) + cz])
+        elif fi == 1: pts = np.column_stack([u*sx + cx, v*sy + cy, np.full(n, -sz) + cz])
+        elif fi == 2: pts = np.column_stack([np.full(n, sx) + cx, u*sy + cy, v*sz + cz])
+        elif fi == 3: pts = np.column_stack([np.full(n, -sx) + cx, u*sy + cy, v*sz + cz])
+        elif fi == 4: pts = np.column_stack([u*sx + cx, np.full(n, sy) + cy, v*sz + cz])
+        else:         pts = np.column_stack([u*sx + cx, np.full(n, -sy) + cy, v*sz + cz])
+        parts.append(pts)
+    return np.concatenate(parts, axis=0).astype(np.float32)
+
+
+def _sample_cylinder(cx, cy, cz, radius, height, n_points):
+    theta = np.random.uniform(0, 2*np.pi, n_points)
+    h = np.random.uniform(0, height, n_points)
+    return np.column_stack([cx + radius*np.cos(theta), cy + radius*np.sin(theta), cz + h]).astype(np.float32)
+
+
+def _sample_sphere(cx, cy, cz, radius, n_points):
+    pts = np.random.randn(n_points, 3).astype(np.float32)
+    pts = pts / np.linalg.norm(pts, axis=1, keepdims=True) * radius
+    pts[:, 0] += cx; pts[:, 1] += cy; pts[:, 2] += cz
+    return pts
+
+
+def _sample_cone(cx, cy, cz, r_bottom, r_top, height, n_points):
+    t = np.random.uniform(0, 1, n_points)
+    theta = np.random.uniform(0, 2*np.pi, n_points)
+    r = r_bottom*(1-t) + r_top*t
+    return np.column_stack([cx + r*np.cos(theta), cy + r*np.sin(theta), cz + t*height]).astype(np.float32)
+
+
+def create_zen_garden_ply(output_path="scene_zen_garden.ply", num_points=40000):
+    print(f"Building ZEN GARDEN PLY ({num_points} points)...")
+    parts = []
+    pp = num_points // 30
+    # Ground
+    gx = np.random.uniform(-6, 6, pp*3); gy = np.random.uniform(-5, 5, pp*3)
+    parts.append(np.column_stack([gx, gy, np.zeros(pp*3)]).astype(np.float32))
+    # Rocks
+    for _ in range(8):
+        parts.append(_sample_sphere(np.random.uniform(-4,4), np.random.uniform(-3,3), np.random.uniform(0.1,0.3), np.random.uniform(0.2,0.6), pp))
+    # Trees
+    for _ in range(5):
+        tx, ty = np.random.uniform(-5,5), np.random.uniform(-4,4)
+        parts.append(_sample_cylinder(tx, ty, 0, 0.1, 2.0, pp))
+        parts.append(_sample_cone(tx, ty, 2.0, 0.8, 0.05, 1.5, pp))
+    # Pond
+    pr = np.sqrt(np.random.uniform(0, 1.5**2, pp))
+    pa = np.random.uniform(0, 2*np.pi, pp)
+    parts.append(np.column_stack([1.5+pr*np.cos(pa), -1.5+pr*np.sin(pa), np.full(pp, 0.02)]).astype(np.float32))
+    # Bridge
+    parts.append(_sample_cube_surface_ex(1.5, -1.5, 0.15, 0.3, 2.0, 0.08, pp))
+    # Path stones
+    for i in range(8):
+        parts.append(_sample_cylinder(-2+i*0.5, 0.5+np.sin(i)*0.3, 0.02, 0.15, 0.03, pp//2))
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)[:num_points]
+    np.random.shuffle(xyz)
+    _write_ply(xyz, scale_log=-2.0, opacity_log=14.0, output_path=output_path)
+
+
+def create_scifi_corridor_ply(output_path="scene_scifi_corridor.ply", num_points=40000):
+    print(f"Building SCIFI CORRIDOR PLY ({num_points} points)...")
+    parts = []; L = 8; pp = num_points // 25
+    # Floor + Ceiling
+    parts.append(_sample_cube_surface_ex(0, 0, -1.8, 2.5, L, 0.1, pp))
+    parts.append(_sample_cube_surface_ex(0, 0, 2.5, 2.5, L, 0.1, pp))
+    # Walls
+    parts.append(_sample_cube_surface_ex(-2.5, 0, 0.3, 0.1, L, 2.5, pp))
+    parts.append(_sample_cube_surface_ex(2.5, 0, 0.3, 0.1, L, 2.5, pp))
+    # Pillars
+    for i in range(8):
+        for sx in [-1.8, 1.8]:
+            parts.append(_sample_cylinder(sx, -6+i*1.5, -0.8, 0.12, 3.5, pp//2))
+    # Floor ridges
+    for i in range(20):
+        parts.append(_sample_cube_surface_ex(0, -7+i*0.7, -1.7, 2.0, 0.03, 0.03, pp//3))
+    # End wall
+    parts.append(_sample_cube_surface_ex(0, -7, 0.3, 2.5, 0.1, 2.5, pp))
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)[:num_points]
+    np.random.shuffle(xyz)
+    _write_ply(xyz, scale_log=-2.2, opacity_log=14.0, output_path=output_path)
+
+
+def create_floating_islands_ply(output_path="scene_floating_islands.ply", num_points=40000):
+    print(f"Building FLOATING ISLANDS PLY ({num_points} points)...")
+    parts = []
+    islands = [(0,0,4,3.0), (5,-2,3,2.0), (-4,1,5,2.5), (3,4,2,1.5), (-3,-3,3.5,1.8)]
+    pp = num_points // (len(islands)*3)
+    for cx, cy, cz, size in islands:
+        parts.append(_sample_cylinder(cx, cy, cz, size, 0.3, pp))
+        parts.append(_sample_cone(cx, cy, cz-2.0, size*0.8, size*0.3, 2.0, pp))
+    # Crystals
+    for _ in range(15):
+        idx = np.random.randint(0, len(islands))
+        ix = islands[idx][0] + np.random.uniform(-0.5, 0.5)
+        iy = islands[idx][1] + np.random.uniform(-0.5, 0.5)
+        iz = islands[idx][2] + 0.3 + np.random.uniform(0, 0.8)
+        parts.append(_sample_cone(ix, iy, iz, 0.08, 0.01, np.random.uniform(0.3, 1.5), pp//2))
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)[:num_points]
+    np.random.shuffle(xyz)
+    _write_ply(xyz, scale_log=-2.0, opacity_log=14.0, output_path=output_path)
+
+
+def create_desert_ruins_ply(output_path="scene_desert_ruins.ply", num_points=40000):
+    print(f"Building DESERT RUINS PLY ({num_points} points)...")
+    parts = []; pp = num_points // 20
+    # Sandy ground
+    gx = np.random.uniform(-8, 8, pp*3); gy = np.random.uniform(-8, 8, pp*3)
+    gz = np.random.uniform(-0.1, 0.1, pp*3) + 0.05*np.sin(gx*0.5)*np.cos(gy*0.5)
+    parts.append(np.column_stack([gx, gy, gz]).astype(np.float32))
+    # Pyramid
+    parts.append(_sample_cone(0, 0, 2, 3, 0.05, 4, pp*2))
+    # Columns
+    for i in range(8):
+        a = i*np.pi/4; r = 4.5
+        parts.append(_sample_cylinder(r*np.cos(a), r*np.sin(a), 0, 0.25, 3, pp))
+    # Obelisks
+    for i in range(4):
+        a = i*np.pi/2 + np.pi/6; r = 6
+        parts.append(_sample_cube_surface_ex(r*np.cos(a), r*np.sin(a), 1.2, 0.2, 0.2, 2.0, pp))
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)[:num_points]
+    np.random.shuffle(xyz)
+    _write_ply(xyz, scale_log=-2.0, opacity_log=14.0, output_path=output_path)
+
+
+def create_forest_glade_ply(output_path="scene_forest_glade.ply", num_points=50000):
+    print(f"Building FOREST GLADE PLY ({num_points} points)...")
+    parts = []; pp = num_points // 30
+    # Ground
+    gx = np.random.uniform(-8, 8, pp*3); gy = np.random.uniform(-8, 8, pp*3)
+    parts.append(np.column_stack([gx, gy, np.random.uniform(0, 0.05, pp*3)]).astype(np.float32))
+    # Trees
+    for _ in range(15):
+        tx = np.random.uniform(-6, 6); ty = np.random.uniform(-6, 6)
+        if abs(tx) < 1.5 and abs(ty) < 1.5:
+            tx = np.random.choice([np.random.uniform(-6,-2), np.random.uniform(2,6)])
+        h = np.random.uniform(1.5, 3.5); r = np.random.uniform(0.06, 0.18)
+        parts.append(_sample_cylinder(tx, ty, 0, r, h, pp))
+        for _ in range(np.random.randint(2, 4)):
+            parts.append(_sample_cone(tx, ty, h*0.6, np.random.uniform(0.5,1.0), 0.02, np.random.uniform(0.6,1.2), pp))
+    # Stone circle
+    for i in range(12):
+        a = i*np.pi/6; r = 1.8
+        parts.append(_sample_cylinder(r*np.cos(a), r*np.sin(a), 0.02, 0.12, np.random.uniform(0.3,0.8), pp//2))
+
+    xyz = np.concatenate(parts, axis=0).astype(np.float32)[:num_points]
+    np.random.shuffle(xyz)
+    _write_ply(xyz, scale_log=-2.0, opacity_log=14.0, output_path=output_path)
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  Generating all CineAnchor scene PLYs")
@@ -318,4 +484,9 @@ if __name__ == "__main__":
     create_multi_object_splat("scene_multi.ply", num_points=30000)
     create_textured_cube_splat("scene_textured_cube.ply", num_points=20000)
     create_complex_scene("scene_complex.ply", num_points=30000)
-    print("\nDone. 5 PLY files generated.")
+    create_zen_garden_ply("scene_zen_garden.ply")
+    create_scifi_corridor_ply("scene_scifi_corridor.ply")
+    create_floating_islands_ply("scene_floating_islands.ply")
+    create_desert_ruins_ply("scene_desert_ruins.ply")
+    create_forest_glade_ply("scene_forest_glade.ply")
+    print("\nDone. 10 PLY files generated.")
