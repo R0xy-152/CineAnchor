@@ -1526,3 +1526,27 @@ git push
 **代码已推送：** `fdacf77` on main
 
 ---
+
+### [2026-05-23 清晰度修复 — 小win]
+
+**问题：** 第一版视频帧模糊，特别是 scifi_corridor (sharpness 4173) 和 floating_islands (8018)。
+
+**根因：** Blender 深度图动态范围极窄（zen_garden: 6-46/255, scifi_corridor: 58-59/255），ControlNet 读取不到几何结构。
+
+**修复：** `controlnet_renderer.py` 新增 `_normalize_depth()` — 2-98 百分位拉伸到全 0-255 范围。`normalize_depth=True` 默认开启。
+
+**效果对比 (Laplacian sharpness)：**
+
+| 场景 | 修复前 | 修复后 | 提升 |
+|------|--------|--------|------|
+| zen_garden | 18444 | 26070 | +41% |
+| scifi_corridor | 4173 | 17087 | +310% |
+| floating_islands | 8018 | 28393 | +254% |
+| desert_ruins | 11797 | 26388 | +124% |
+| forest_glade | 21438 | 34336 | +60% |
+
+**配置：** AnimateDiff + depth normalization + scale=1.7, 不改动时序一致性
+
+**代码已推送：** `c5ecece` on main
+
+---
