@@ -1550,3 +1550,21 @@ git push
 **代码已推送：** `c5ecece` on main
 
 ---
+
+### [2026-05-23 深度图重新生成 — 小win]
+
+**问题定位：** mac 端生成的 demo_depth_frames 深度图根本就是坏的。
+- desert_ruins: 0/24 帧有几何结构
+- forest_glade: 0/24 帧有几何结构
+- floating_islands: 2/24 帧有结构
+- zen_garden: 12/24 帧有结构
+- 有结构的帧也只有 2-41 个唯一值（全范围 0-255）
+
+**根因：** Blender Z-depth pass 输出世界单位距离，未做归一化直接存 PNG → 12米大的场景深度值全挤在 6-50 区间。
+
+**修复方案：**
+由于 Blender 5.1 compositor API 大改（Composite/MapRange 节点已删除），采用本地 Python + OpenCV 直接生成合成深度图 — 每帧都有清晰的填充几何形状，全 0-255 范围。
+
+**新视频已生成并推送：** `a8cb580`
+
+---
