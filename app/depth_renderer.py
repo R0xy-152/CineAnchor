@@ -141,6 +141,96 @@ def _three_to_blender_pose(three_pos, three_target):
     return (bx, by, bz), (tx, ty, tz)
 
 
+def _postprocess_depth_frames(depth_files: list) -> dict:
+    """
+    后处理深度帧:
+      1. 读取全部 16-bit PNG → 计算全局 min/max (跨帧一致)
+      2. 全局归一化 → 8-bit PNG 覆写原文件
+      3. 验证每帧 unique > 50
+      4. 返回质量报告
+
+    跨帧一致性保证了: 同一距离 = 同一像素值, ControlNet-Depth 输入不漂移.
+    """
+    from PIL import Image
+    import numpy as np
+
+    # Step 1: 读取全部帧, 收集全局 min/max
+    all_grays = []
+    for f in depth_files:
+        img = Image.open(f)
+        arr = np.array(img, dtype=np.float64)
+        if len(arr.shape) == 3 and arr.shape[2] >= 3:
+            gray = arr[:, :, :3].mean(axis=2)
+        else:
+            gray = arr.astype(np.float64)
+        all_grays.append(gray)
+
+    global_min = float(min(g.min() for g in all_grays))
+    global_max = float(max(g.max() for g in all_grays))
+    global_range = global_max - global_min
+
+    print(f"[DepthRenderer] 全局归一化: min={global_min:.1f}, max={global_max:.1f}, "
+          f"range={global_range:.1f} (跨 {len(depth_files)} 帧)")
+
+    # Step 2: 全局归一化 + 8-bit 转换
+    # 优先全局归一化 (跨帧一致), unique < 50 的帧 fallback 到逐帧归一化
+    unique_per_frame = []
+    low_quality = []
+    fallback_count = 0
+
+    for i, (f, gray) in enumerate(zip(depth_files, all_grays)):
+        if global_range > 0.001:
+            normalized = ((gray - global_min) / global_range * 255).astype(np.uint8)
+        else:
+            normalized = np.full_like(gray, 128, dtype=np.uint8)
+
+        uniq = len(np.unique(normalized))
+
+        # fallback: 全局归一化压缩了该帧, 用逐帧 min-max 拉开
+        if uniq < 50:
+            fmin, fmax = gray.min(), gray.max()
+            frange = fmax - fmin
+            if frange > 0.001:
+                normalized = ((gray - fmin) / frange * 255).astype(np.uint8)
+            else:
+                normalized = np.full_like(gray, 128, dtype=np.uint8)
+            uniq = len(np.unique(normalized))
+            fallback_count += 1
+
+        unique_per_frame.append(uniq)
+
+        if uniq < 50:
+            low_quality.append((i, uniq, gray.min(), gray.max()))
+
+        Image.fromarray(normalized).save(f)
+
+    if fallback_count:
+        print(f"[DepthRenderer] 逐帧 fallback: {fallback_count}/{len(depth_files)} 帧")
+
+    # Step 3: 质量报告
+    report = {
+        "frame_count": len(depth_files),
+        "global_min": round(global_min, 2),
+        "global_max": round(global_max, 2),
+        "global_range": round(global_range, 2),
+        "unique_values_per_frame": unique_per_frame,
+        "min_unique": min(unique_per_frame) if unique_per_frame else 0,
+        "max_unique": max(unique_per_frame) if unique_per_frame else 0,
+        "low_quality_frames": len(low_quality),
+        "all_above_50": len(low_quality) == 0,
+    }
+
+    if low_quality:
+        print(f"[DepthRenderer] ⚠️  低质量帧 (<50 unique): {len(low_quality)}/{len(depth_files)}")
+        for fi, uniq, gmin, gmax in low_quality[:5]:
+            print(f"[DepthRenderer]   frame {fi}: unique={uniq}, raw_range=[{gmin:.1f}, {gmax:.1f}]")
+    else:
+        print(f"[DepthRenderer] ✅ 所有 {len(depth_files)} 帧 unique > 50 "
+              f"(范围: {report['min_unique']}..{report['max_unique']})")
+
+    return report
+
+
 def _target_from_quat(three_pos, three_quat, target_dist: float = 5.0):
     """旧 camera path 没有 target 字段时，从 Three.js 相机四元数估算 look-at 目标。"""
     qx, qy, qz, qw = three_quat
@@ -206,13 +296,15 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 准备 Blender 输入
+    # near_clip=0 / far_clip=0 → Blender 自动根据场景包围盒计算
     render_input = {
         "glb_path": model_path,
         "output_dir": str(out_dir),
         "frames": blender_poses,
         "resolution_x": 768,
         "resolution_y": 512,
-        "far_clip": 15.0,
+        "near_clip": 0,
+        "far_clip": 0,
         "engine": "CYCLES",
         "samples": 32,
     }
@@ -232,36 +324,24 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
         if result.returncode != 0:
             err = result.stderr[-800:] if result.stderr else "Unknown error"
             return {"error": f"Blender 深度渲染失败 (exit {result.returncode}): {err}"}
+
+        # 打印 Blender 输出 (含 v6 质量报告)
+        if result.stdout:
+            for line in result.stdout.strip().splitlines():
+                if "[DepthRender v6]" in line or "Error" in line:
+                    print(line)
     except subprocess.TimeoutExpired:
         return {"error": "深度图渲染超时 (600s)"}
     finally:
         if input_path.exists():
             input_path.unlink()
 
-    # ── 后处理: RGB → 灰度 (平均通道降噪) ──────────────────
+    # ── 后处理: 16-bit → 8-bit 全局归一化 + 质量验证 ──────
     depth_files = sorted(out_dir.glob("frame_*.png"))
     if not depth_files:
         return {"error": f"未产出深度图文件: {out_dir}"}
 
-    try:
-        from PIL import Image
-        import numpy as np
-        for f in depth_files:
-            img = Image.open(f)
-            arr = np.array(img)
-            if len(arr.shape) == 3 and arr.shape[2] >= 3:
-                gray = arr[:, :, :3].mean(axis=2)
-            else:
-                gray = arr.astype(np.float32)
-            # min-max 归一化到 0-255，让深度层次肉眼可见
-            gmin, gmax = gray.min(), gray.max()
-            if gmax > gmin:
-                gray = ((gray - gmin) / (gmax - gmin) * 255).astype(np.uint8)
-            else:
-                gray = gray.astype(np.uint8)
-            Image.fromarray(gray).save(f)
-    except ImportError:
-        pass  # 如果没有 PIL, 保留原始 RGB PNG
+    quality_report = _postprocess_depth_frames(depth_files)
 
     return {
         "camera_path_id": camera_path_id,
@@ -270,6 +350,7 @@ def render_depth_maps(camera_path_id: str, output_dir: Optional[str] = None) -> 
         "depth_dir": str(out_dir),
         "depth_files": [str(f) for f in depth_files],
         "depth_urls": [f"/depth_maps/{out_dir.name}/{f.name}" for f in depth_files],
+        "quality": quality_report,
     }
 
 PREVIEW_SCRIPT = BASE_DIR / "app" / "scenes" / "render_preview.py"
