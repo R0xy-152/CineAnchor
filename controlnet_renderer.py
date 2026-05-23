@@ -70,12 +70,23 @@ class ControlNetRenderer:
         self._animatediff_loaded = False
         print("ControlNet pipeline loaded successfully.")
 
+    def _normalize_depth(self, depth_image):
+        """拉伸深度图到全 0-255 范围，让 ControlNet 能读取清晰的几何结构。"""
+        import cv2
+        gray = cv2.cvtColor(np.array(depth_image), cv2.COLOR_RGB2GRAY)
+        v_min, v_max = np.percentile(gray, 2), np.percentile(gray, 98)
+        if v_max - v_min < 1:
+            v_min, v_max = gray.min(), gray.max()
+        if v_max - v_min < 1:
+            return depth_image
+        normalized = np.clip((gray.astype(np.float32) - v_min) / (v_max - v_min) * 255, 0, 255).astype(np.uint8)
+        return Image.fromarray(cv2.cvtColor(normalized, cv2.COLOR_GRAY2RGB))
+
     def _enhance_depth(self, depth_image):
         """Canny 边缘叠加到深度图，给 ControlNet 更强的几何特征"""
         import cv2
         gray = cv2.cvtColor(np.array(depth_image), cv2.COLOR_RGB2GRAY)
         edges = cv2.Canny(gray, 50, 150)
-        # 边缘处提亮，非边缘处略微压暗 → 提升几何对比度
         enhanced = gray.astype(np.float32)
         enhanced = enhanced * 0.9 + edges.astype(np.float32) * 0.3
         enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
@@ -91,7 +102,8 @@ class ControlNetRenderer:
                    num_inference_steps: int = 20, guidance_scale: float = 7.5,
                    seed: int = 42,
                    controlnet_conditioning_scale: float = 1.0,
-                   enhance_depth: bool = False) -> str:
+                   enhance_depth: bool = False,
+                   normalize_depth: bool = True) -> str:
         """
         从深度图生成 RGB 图像。
 
@@ -103,19 +115,19 @@ class ControlNetRenderer:
             guidance_scale: CFG scale
             seed: 随机种子
             controlnet_conditioning_scale: ControlNet 对 UNet 的注入强度。
-                0.7-0.85 = 平衡几何约束与纹理自由度，推荐用于视频序列
-                1.0      = 严格跟随深度 (默认)，深度不一致时可能加剧扭曲
+            normalize_depth: 是否将深度图归一化到全 0-255 范围 (推荐开启)
 
         Returns:
             输出文件路径
         """
         depth_image = Image.open(depth_map_path).convert("RGB")
-        print(f"Input depth map size: {depth_image.size}")
 
         ts = (self.target_size, self.target_size)
         if depth_image.size != ts:
             depth_image = depth_image.resize(ts, Image.LANCZOS)
 
+        if normalize_depth:
+            depth_image = self._normalize_depth(depth_image)
         if enhance_depth:
             depth_image = self._enhance_depth(depth_image)
 
@@ -133,14 +145,14 @@ class ControlNetRenderer:
 
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         self._polish_frame(output.images[0]).save(output_path)
-        print(f"RGB image saved to: {output_path}")
 
         return output_path
 
     def render_batch(self, depth_dir: str, prompt: str, output_dir: str,
                      num_inference_steps: int = 20, seed: int = 42,
                      controlnet_conditioning_scale: float = 1.0,
-                     enhance_depth: bool = False) -> list[str]:
+                     enhance_depth: bool = False,
+                     normalize_depth: bool = True) -> list[str]:
         """
         批量渲染：读取目录下所有深度图，逐帧生成 RGB 图像。
 
@@ -150,7 +162,8 @@ class ControlNetRenderer:
             output_dir: 输出目录
             num_inference_steps: 推理步数
             seed: 随机种子 (所有帧共用，确保噪声模式一致)
-            controlnet_conditioning_scale: ControlNet 注入强度。1.0=严格跟随深度 (推荐)
+            controlnet_conditioning_scale: ControlNet 注入强度
+            normalize_depth: 是否将深度图归一化到全 0-255 范围 (推荐开启)
 
         Returns:
             输出文件路径列表
@@ -163,7 +176,8 @@ class ControlNetRenderer:
 
         print(f"Found {len(depth_files)} depth maps in {depth_dir}")
         print(f"Seed: {seed} (unified), "
-              f"conditioning_scale={controlnet_conditioning_scale}")
+              f"conditioning_scale={controlnet_conditioning_scale}, "
+              f"normalize_depth={normalize_depth}")
         os.makedirs(output_dir, exist_ok=True)
 
         output_paths = []
@@ -177,7 +191,8 @@ class ControlNetRenderer:
                             num_inference_steps=num_inference_steps,
                             seed=seed,
                             controlnet_conditioning_scale=controlnet_conditioning_scale,
-                            enhance_depth=enhance_depth)
+                            enhance_depth=enhance_depth,
+                            normalize_depth=normalize_depth)
             output_paths.append(output_path)
 
         print(f"Batch render complete: {len(output_paths)} frames → {output_dir}")
@@ -237,6 +252,7 @@ class ControlNetRenderer:
                         seed: int = 42,
                         controlnet_conditioning_scale: float = 1.0,
                         enhance_depth: bool = False,
+                        normalize_depth: bool = True,
                         max_frames: int = 16) -> list[str]:
         """
         AnimateDiff + ControlNet 联合生成。
@@ -249,6 +265,7 @@ class ControlNetRenderer:
             guidance_scale: CFG scale
             seed: 随机种子
             controlnet_conditioning_scale: ControlNet 注入强度
+            normalize_depth: 是否将深度图归一化到全 0-255 范围 (推荐开启)
 
         Returns:
             输出 RGB 帧路径列表
@@ -277,6 +294,8 @@ class ControlNetRenderer:
             ts = (self.target_size, self.target_size)
             if img.size != ts:
                 img = img.resize(ts, Image.LANCZOS)
+            if normalize_depth:
+                img = self._normalize_depth(img)
             if enhance_depth:
                 img = self._enhance_depth(img)
             depth_images.append(img)
