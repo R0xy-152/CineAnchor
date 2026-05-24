@@ -1599,3 +1599,35 @@ git push
 **本地代码已就绪：** `controlnet_renderer.py`, `batch_render_scenes.py`, `frame_interpolator.py`, `video_renderer.py`, `generate_cube_splat.py`(含5场景PLY生成器), `pipeline_3dgs.py`
 
 ---
+
+### [2026-05-24 全链路修复完成 ✅ — 小win]
+
+**mac 的 Blender v6 修复 + 本地 ControlNet 管线全部跑通。**
+
+**流程：**
+```
+GLB模型 + 相机路径(SQLite) → Blender v6 render_depth.py
+→ 16-bit 深度图(compositor Normalize, auto near/far)
+→ 16→8bit per-frame归一化 → ControlNet + AnimateDiff
+→ RAFT 3x插值 → MP4视频
+```
+
+**质量对比：**
+
+| 指标 | 修复前(mac旧版) | 修复后(Blender v6) |
+|------|----------------|-------------------|
+| 位深 | 8-bit (256级) | 16-bit (65536级) |
+| unique/frame | 2-41 | 201-256 |
+| >50 unique帧 | 0-50% | **97-100%** |
+| near/far | 固定 0.01/100 | **自动场景AABB** |
+
+**5 场景视频：**
+- `static/videos/zen_garden_demo.mp4` (1960 KB)
+- `static/videos/scifi_corridor_demo.mp4` (1495 KB)
+- `static/videos/floating_islands_demo.mp4` (1863 KB)
+- `static/videos/desert_ruins_demo.mp4` (1630 KB)
+- `static/videos/forest_glade_demo.mp4` (1900 KB)
+
+**代码已推送：** `ae1c1a1` on main
+
+---
